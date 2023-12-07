@@ -73,11 +73,6 @@ class VirtualPet(QMainWindow):
     def __init__(self, blink_speed=35, blink_timer=4000):
         super().__init__()
 
-        # self.tts_engine = pyttsx3.init()
-        # voices = self.tts_engine.getProperty('voices')
-        # self.tts_engine.setProperty('voice', voices[1].id)  # Set the desired voice
-        # self.tts_engine.setProperty('rate', speech_rate)  # Set speech rate (speed)
-
         self.current_outfit = 'default'
         self.current_expression = 'normal'
         self.isBlinking = False
