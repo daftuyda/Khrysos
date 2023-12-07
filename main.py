@@ -26,7 +26,7 @@ class GPTWorker(QThread):
             response = client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
-                    {"role": "system", "content": "You are a personal assistant. (With each response add an expression from 'Normal, Surprised, Love' to the start of the message in square brackets.)"},
+                    {"role": "system", "content": "You are a personal assistant. Use casual language when responding (With each response add an expression from 'Normal, Surprised, Love' to the start of the message in square brackets and change them often or at random.)"},
                     {"role": "user", "content": self.message}
                 ]
             )
