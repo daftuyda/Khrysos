@@ -1,7 +1,6 @@
 import sys
 import os
-import json
-from elevenlabs import generate, play, voices
+from elevenlabs import generate, play
 from ctypes import cast, POINTER
 from comtypes import CLSCTX_ALL
 from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
@@ -14,14 +13,13 @@ from PyQt5.QtCore import QTimer, Qt, QThread, pyqtSignal
 load_dotenv()
 
 openai_key = os.getenv('OPENAI_API_KEY')
-
 client = OpenAI(api_key=openai_key)
 
 devices = AudioUtilities.GetSpeakers()
 interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
 volume = cast(interface, POINTER(IAudioEndpointVolume))
 
-# Worker class for handling GPT communication
+
 class GPTWorker(QThread):
     finished = pyqtSignal(str)
 
@@ -32,7 +30,8 @@ class GPTWorker(QThread):
 
     def run(self):
         try:
-            messages=[{"role": "system", "content": "Your name is Yuki, you are my personal assistant. Use casual language when responding. Keep responses short and concise. (With each response add an expression from 'Normal, Surprised, Love' to the start of the message in square brackets and change them often or at random.)"}]
+            messages = [
+                {"role": "system", "content": "Your name is YuKi, you are my personal assistant. Use casual language when responding. Keep responses short and concise. (With each response add an expression from 'Normal, Surprised, Love' to the start of the message in square brackets and change them often or at random.)"}]
             messages += self.conversation_history
             messages.append({"role": "user", "content": self.message})
 
@@ -46,30 +45,33 @@ class GPTWorker(QThread):
         except Exception as e:
             self.finished.emit(str(e))
 
+
 class TTSWorker(QThread):
     def __init__(self, text):
         super().__init__()
         self.text = text
-        self.api_key = os.getenv('ELEVENLABS_API_KEY')  # Ensure you've set this in your environment
+        # Ensure you've set this in your environment
+        self.api_key = os.getenv('ELEVENLABS_API_KEY')
 
         audio = generate(
-            text = text,
+            text=text,
             voice="Gigi",
             model="eleven_turbo_v2"
         )
 
         play(audio)
 
+
 class ClickablePixmapItem(QGraphicsPixmapItem):
-    def __init__(self, pixmap, virtual_pet, parent=None):
+    def __init__(self, pixmap, virtual_assistant, parent=None):
         super().__init__(pixmap, parent)
-        self.virtual_pet = virtual_pet
+        self.virtual_assistant = virtual_assistant
 
     def mousePressEvent(self, event):
-        self.virtual_pet.cycle_outfit()
+        self.virtual_assistant.cycle_outfit()
 
-# Main VirtualPet class
-class VirtualPet(QMainWindow):
+
+class VirtualAssistant(QMainWindow):
     def __init__(self, blink_speed=35, blink_timer=4000):
         super().__init__()
 
@@ -103,8 +105,10 @@ class VirtualPet(QMainWindow):
                 # Load blinking animation sprites
                 self.blinking_sprites[outfit][expression] = [
                     QPixmap(f'sprites/{outfit}/{expression}Blink{i}.png').scaled(
-                        int(QPixmap(f'sprites/{outfit}/{expression}Blink{i}.png').width()),
-                        int(QPixmap(f'sprites/{outfit}/{expression}Blink{i}.png').height()),
+                        int(QPixmap(
+                            f'sprites/{outfit}/{expression}Blink{i}.png').width()),
+                        int(QPixmap(
+                            f'sprites/{outfit}/{expression}Blink{i}.png').height()),
                         Qt.KeepAspectRatio, Qt.SmoothTransformation)
                     for i in range(1, 4)]  # Assuming 3 frames for blinking animation
 
@@ -144,9 +148,11 @@ class VirtualPet(QMainWindow):
         # Add a chat box
         self.chat_box = QLineEdit(self)
         self.chat_box.setGeometry(10, 400, 380, 25)
-        self.chat_box.setStyleSheet("background-color: white; color: black; border: 2px solid black; border-radius: 5px;")
+        self.chat_box.setStyleSheet(
+            "background-color: white; color: black; border: 2px solid black; border-radius: 5px;")
         self.chat_box.setPlaceholderText("Use the 'gpt:' prefix for ChatGPT.")
-        self.chat_box.returnPressed.connect(self.process_command)  # Connect the returnPressed signal
+        # Connect the returnPressed signal
+        self.chat_box.returnPressed.connect(self.process_command)
 
     def init_sprite_item(self):
         initial_pixmap = self.sprites[self.current_outfit][self.current_expression]
@@ -192,7 +198,8 @@ class VirtualPet(QMainWindow):
                 self.blinking_index = 0
                 self.isBlinking = False
                 self.blink_frame_timer.stop()
-                self.sprite_item.setPixmap(self.sprites[self.current_outfit][self.current_expression])
+                self.sprite_item.setPixmap(
+                    self.sprites[self.current_outfit][self.current_expression])
 
     def process_command(self):
         command = self.chat_box.text().strip().lower()
@@ -200,16 +207,18 @@ class VirtualPet(QMainWindow):
         # Define a prefix for chatgpt
         prefix = "gpt:"
 
-        if command == "quit" or command== "close" or command == "exit" or command == "q":
+        if command == "quit" or command == "close" or command == "exit" or command == "q":
             self.close()
             return
         elif command == "volume up":
-            volume.SetMasterVolumeLevelScalar(volume.GetMasterVolumeLevelScalar() + 0.1, None)
+            volume.SetMasterVolumeLevelScalar(
+                volume.GetMasterVolumeLevelScalar() + 0.1, None)
             self.current = volume.GetMasterVolumeLevel()
             self.chat_box.clear()
             return
         elif command == "volume down":
-            volume.SetMasterVolumeLevelScalar(volume.GetMasterVolumeLevelScalar() - 0.1, None)
+            volume.SetMasterVolumeLevelScalar(
+                volume.GetMasterVolumeLevelScalar() - 0.1, None)
             self.current = volume.GetMasterVolumeLevel()
             self.chat_box.clear()
             return
@@ -238,18 +247,22 @@ class VirtualPet(QMainWindow):
                     self.current = volume.GetMasterVolumeLevel()
                     self.chat_box.clear()
                 else:
-                    self.chat_box.setText("Invalid volume percentage. Please use a value between 0 and 100.")
+                    self.chat_box.setText(
+                        "Invalid volume percentage. Please use a value between 0 and 100.")
             except ValueError:
-                self.chat_box.setText("Invalid volume percentage. Please use a numeric value.")
+                self.chat_box.setText(
+                    "Invalid volume percentage. Please use a numeric value.")
             return
         elif command == "hide":
-            self.setWindowFlag(Qt.WindowStaysOnTopHint, False)  # Disable always on top
+            # Disable always on top
+            self.setWindowFlag(Qt.WindowStaysOnTopHint, False)
             self.setVisible(True)
             self.chat_box.clear()
             return
         elif command == "show":
             self.show()
-            self.setWindowFlag(Qt.WindowStaysOnTopHint, True)  # Enable always on top
+            self.setWindowFlag(Qt.WindowStaysOnTopHint,
+                               True)  # Enable always on top
             self.setVisible(True)
             self.chat_box.clear()
             return
@@ -265,7 +278,7 @@ class VirtualPet(QMainWindow):
         # Add user command to history
         self.conversation_history.append({"role": "user", "content": command})
 
-        max_history_length = 25  # Keep last 25 exchanges
+        max_history_length = 25
         if len(self.conversation_history) > max_history_length:
             self.conversation_history = self.conversation_history[-max_history_length:]
 
@@ -276,12 +289,13 @@ class VirtualPet(QMainWindow):
         self.chat_box.clear()
 
     def handle_gpt_response(self, gpt_response):
-        #print(f"Original Response: {gpt_response}")
-        self.conversation_history.append({"role": "assistant", "content": gpt_response})
+        self.conversation_history.append(
+            {"role": "assistant", "content": gpt_response})
 
         if gpt_response.startswith('[') and ']' in gpt_response:
             end_bracket_index = gpt_response.find(']')
-            expression = gpt_response[1:end_bracket_index].strip().lower()  # Convert expression to lowercase
+            # Convert expression to lowercase
+            expression = gpt_response[1:end_bracket_index].strip().lower()
             message = gpt_response[end_bracket_index + 1:].strip()
 
             if expression in self.expressions:
@@ -295,10 +309,11 @@ class VirtualPet(QMainWindow):
         self.tts_worker = TTSWorker(message)
         self.tts_worker.start()
 
+
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     blink_speed = 25
     blink_timer = 4000
-    pet = VirtualPet(blink_speed, blink_timer)
-    pet.show()
+    assistant = VirtualAssistant(blink_speed, blink_timer)
+    assistant.show()
     sys.exit(app.exec_())
