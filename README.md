@@ -11,6 +11,7 @@ Like [Maid-Chan](https://www.youtube.com/watch?v=xHMDiscnKb4) from Sakurasou but
 - 3 Different outfits
 - AI Voice model (Coming soon)
 - Conversation history
+- Volume commands
 
 ### To-Do list
 - [ ] AI Voice model
@@ -18,4 +19,5 @@ Like [Maid-Chan](https://www.youtube.com/watch?v=xHMDiscnKb4) from Sakurasou but
 - [ ] More outfits
 - [ ] More expressions
 - [ ] Better text generation prompt
+- [x] Volume commands
 - [ ] Youtube downloading
