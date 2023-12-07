@@ -17,19 +17,22 @@ client = OpenAI(api_key=openai_key)
 class GPTWorker(QThread):
     finished = pyqtSignal(str)
 
-    def __init__(self, message):
+    def __init__(self, message, conversation_history):
         super().__init__()
         self.message = message
+        self.conversation_history = conversation_history
 
     def run(self):
         try:
+            messages=[{"role": "system", "content": "Your name is Yuki, you are my personal assistant. Use casual language when responding. (With each response add an expression from 'Normal, Surprised, Love' to the start of the message in square brackets and change them often or at random.)"}]
+            messages += self.conversation_history
+            messages.append({"role": "user", "content": self.message})
+
             response = client.chat.completions.create(
                 model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": "You are a personal assistant. Use casual language when responding (With each response add an expression from 'Normal, Surprised, Love' to the start of the message in square brackets and change them often or at random.)"},
-                    {"role": "user", "content": self.message}
-                ]
+                messages=messages
             )
+
             assistant_message = response.choices[0].message.content.strip()
             self.finished.emit(assistant_message)
         except Exception as e:
@@ -71,6 +74,8 @@ class VirtualPet(QMainWindow):
         self.current_expression = 'normal'
         self.isBlinking = False
         self.blinking_index = 0
+
+        self.conversation_history = []
 
         # Define possible outfits and expressions
         self.outfits = ['default', 'cat', 'devil']
@@ -184,15 +189,20 @@ class VirtualPet(QMainWindow):
                 self.sprite_item.setPixmap(self.sprites[self.current_outfit][self.current_expression])
 
     def process_command(self):
-        command = self.chat_box.text().strip().lower()  # Convert command to lowercase
+        command = self.chat_box.text().strip().lower()
 
-        # Check for quit command
+        # Add user command to history
+        self.conversation_history.append({"role": "user", "content": command})
+
         if command == "quit":
-            self.close()  # Close the application
+            self.close()
             return
 
-        # Create and start the GPT worker
-        self.gpt_worker = GPTWorker(command)
+        max_history_length = 10  # Keep last 10 exchanges
+        if len(self.conversation_history) > max_history_length:
+            self.conversation_history = self.conversation_history[-max_history_length:]
+
+        self.gpt_worker = GPTWorker(command, self.conversation_history)
         self.gpt_worker.finished.connect(self.handle_gpt_response)
         self.gpt_worker.start()
 
@@ -200,6 +210,7 @@ class VirtualPet(QMainWindow):
 
     def handle_gpt_response(self, gpt_response):
         #print(f"Original Response: {gpt_response}")
+        self.conversation_history.append({"role": "assistant", "content": gpt_response})
 
         if gpt_response.startswith('[') and ']' in gpt_response:
             end_bracket_index = gpt_response.find(']')
