@@ -1,7 +1,8 @@
 import sys
 import os
+import ctypes
 from elevenlabs import generate, play
-from ctypes import cast, POINTER
+from ctypes import cast, POINTER, wintypes
 from comtypes import CLSCTX_ALL
 from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
 from dotenv import load_dotenv
@@ -18,6 +19,24 @@ client = OpenAI(api_key=openai_key)
 devices = AudioUtilities.GetSpeakers()
 interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
 volume = cast(interface, POINTER(IAudioEndpointVolume))
+
+user32 = ctypes.WinDLL('user32', use_last_error=True)
+
+
+def keybd_event(bVk, bScan, dwFlags, dwExtraInfo):
+    user32.keybd_event(bVk, bScan, dwFlags, dwExtraInfo)
+
+
+# Constants for the Play/Pause key
+VK_MEDIA_PLAY_PAUSE = 0xB3
+KEYEVENTF_EXTENDEDKEY = 0x1
+KEYEVENTF_KEYUP = 0x2
+
+
+def simulate_media_play_pause():
+    keybd_event(VK_MEDIA_PLAY_PAUSE, 0, KEYEVENTF_EXTENDEDKEY, 0)
+    keybd_event(VK_MEDIA_PLAY_PAUSE, 0,
+                KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0)
 
 
 class GPTWorker(QThread):
@@ -151,7 +170,7 @@ class VirtualAssistant(QMainWindow):
         self.chat_box.setStyleSheet(
             "background-color: white; color: black; border: 2px solid black; border-radius: 5px;")
         self.chat_box.setPlaceholderText("Use the 'gpt:' prefix for ChatGPT.")
-        # Connect the returnPressed signal
+        self.chat_box.setFocus()
         self.chat_box.returnPressed.connect(self.process_command)
 
     def init_sprite_item(self):
@@ -257,6 +276,7 @@ class VirtualAssistant(QMainWindow):
             # Disable always on top
             self.setWindowFlag(Qt.WindowStaysOnTopHint, False)
             self.setVisible(True)
+            self.showMinimized()
             self.chat_box.clear()
             return
         elif command == "show":
@@ -264,6 +284,10 @@ class VirtualAssistant(QMainWindow):
             self.setWindowFlag(Qt.WindowStaysOnTopHint,
                                True)  # Enable always on top
             self.setVisible(True)
+            self.chat_box.clear()
+            return
+        elif command == "pause" or command == "play" or command == "p":
+            simulate_media_play_pause()
             self.chat_box.clear()
             return
 
