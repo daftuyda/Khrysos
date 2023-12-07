@@ -1,6 +1,9 @@
 import sys
 import os
 import pyttsx3
+from ctypes import cast, POINTER
+from comtypes import CLSCTX_ALL
+from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
 from dotenv import load_dotenv
 from openai import OpenAI
 from PyQt5.QtWidgets import QApplication, QMainWindow, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QLineEdit
@@ -13,6 +16,10 @@ openai_key = os.getenv('OPENAI_API_KEY')
 
 client = OpenAI(api_key=openai_key)
 
+devices = AudioUtilities.GetSpeakers()
+interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+volume = cast(interface, POINTER(IAudioEndpointVolume))
+
 # Worker class for handling GPT communication
 class GPTWorker(QThread):
     finished = pyqtSignal(str)
@@ -24,7 +31,7 @@ class GPTWorker(QThread):
 
     def run(self):
         try:
-            messages=[{"role": "system", "content": "Your name is Yuki, you are my personal assistant. Use casual language when responding. (With each response add an expression from 'Normal, Surprised, Love' to the start of the message in square brackets and change them often or at random.)"}]
+            messages=[{"role": "system", "content": "Your name is Yuki, you are my personal assistant. Use casual language when responding. Keep responses short and concise. (With each response add an expression from 'Normal, Surprised, Love' to the start of the message in square brackets and change them often or at random.)"}]
             messages += self.conversation_history
             messages.append({"role": "user", "content": self.message})
 
@@ -74,6 +81,8 @@ class VirtualPet(QMainWindow):
         self.current_expression = 'normal'
         self.isBlinking = False
         self.blinking_index = 0
+
+        self.current = volume.GetMasterVolumeLevel()
 
         self.conversation_history = []
 
@@ -191,14 +200,76 @@ class VirtualPet(QMainWindow):
     def process_command(self):
         command = self.chat_box.text().strip().lower()
 
+        # Define a prefix for chatgpt
+        prefix = "gpt:"
+
+        if command == "quit" or command== "close" or command == "exit" or command == "q":
+            self.close()
+            return
+        elif command == "volume up":
+            volume.SetMasterVolumeLevelScalar(volume.GetMasterVolumeLevelScalar() + 0.1, None)
+            self.current = volume.GetMasterVolumeLevel()
+            self.chat_box.clear()
+            return
+        elif command == "volume down":
+            volume.SetMasterVolumeLevelScalar(volume.GetMasterVolumeLevelScalar() - 0.1, None)
+            self.current = volume.GetMasterVolumeLevel()
+            self.chat_box.clear()
+            return
+        elif command == "volume mute" or command == "volume 0":
+            volume.SetMasterVolumeLevelScalar(0, None)
+            self.current = volume.GetMasterVolumeLevel()
+            self.chat_box.clear()
+            return
+        elif command == "volume max" or command == "volume 1":
+            volume.SetMasterVolumeLevelScalar(1, None)
+            self.current = volume.GetMasterVolumeLevel()
+            self.chat_box.clear()
+            return
+        elif command == "volume mid":
+            volume.SetMasterVolumeLevelScalar(0.5, None)
+            self.current = volume.GetMasterVolumeLevel()
+            self.chat_box.clear()
+            return
+        elif command.startswith("volume "):
+            try:
+                percent = float(command.split("volume ")[1])
+                if 0 <= percent <= 100:
+                    # Convert percentage to a value between 0 and 1
+                    volume_level = percent / 100.0
+                    volume.SetMasterVolumeLevelScalar(volume_level, None)
+                    self.current = volume.GetMasterVolumeLevel()
+                    self.chat_box.clear()
+                else:
+                    self.chat_box.setText("Invalid volume percentage. Please use a value between 0 and 100.")
+            except ValueError:
+                self.chat_box.setText("Invalid volume percentage. Please use a numeric value.")
+            return
+        elif command == "hide":
+            self.setWindowFlag(Qt.WindowStaysOnTopHint, False)  # Disable always on top
+            self.setVisible(True)
+            self.chat_box.clear()
+            return
+        elif command == "show":
+            self.show()
+            self.setWindowFlag(Qt.WindowStaysOnTopHint, True)  # Enable always on top
+            self.setVisible(True)
+            self.chat_box.clear()
+            return
+
+        # Check if the command starts with the prefix
+        if not command.lower().startswith(prefix.lower()):
+            self.chat_box.clear()
+            self.chat_box.setPlaceholderText("Use the 'gpt:' prefix for ChatGPT.")
+            return
+
+        # Remove the prefix from the command
+        command = command[len(prefix):].strip().lower()
+
         # Add user command to history
         self.conversation_history.append({"role": "user", "content": command})
 
-        if command == "quit":
-            self.close()
-            return
-
-        max_history_length = 10  # Keep last 10 exchanges
+        max_history_length = 25  # Keep last 25 exchanges
         if len(self.conversation_history) > max_history_length:
             self.conversation_history = self.conversation_history[-max_history_length:]
 
