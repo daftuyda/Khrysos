@@ -1,6 +1,7 @@
 import sys
 import os
-import pyttsx3
+import json
+from elevenlabs import generate, play, voices
 from ctypes import cast, POINTER
 from comtypes import CLSCTX_ALL
 from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
@@ -46,18 +47,18 @@ class GPTWorker(QThread):
             self.finished.emit(str(e))
 
 class TTSWorker(QThread):
-    def __init__(self, tts_engine, text):
+    def __init__(self, text):
         super().__init__()
-        self.tts_engine = tts_engine
         self.text = text
+        self.api_key = os.getenv('ELEVENLABS_API_KEY')  # Ensure you've set this in your environment
 
-    def run(self):
-        try:
-            print(f"Speaking: {self.text}")  # Debug print
-            self.tts_engine.say(self.text)
-            self.tts_engine.runAndWait()
-        except Exception as e:
-            print(f"TTS Error: {e}")  # Log any exceptions
+        audio = generate(
+            text = text,
+            voice="Gigi",
+            model="eleven_turbo_v2"
+        )
+
+        play(audio)
 
 class ClickablePixmapItem(QGraphicsPixmapItem):
     def __init__(self, pixmap, virtual_pet, parent=None):
@@ -69,13 +70,13 @@ class ClickablePixmapItem(QGraphicsPixmapItem):
 
 # Main VirtualPet class
 class VirtualPet(QMainWindow):
-    def __init__(self, blink_speed=35, blink_timer=4000, speech_rate=150):
+    def __init__(self, blink_speed=35, blink_timer=4000):
         super().__init__()
 
-        self.tts_engine = pyttsx3.init()
-        voices = self.tts_engine.getProperty('voices')
-        self.tts_engine.setProperty('voice', voices[1].id)  # Set the desired voice
-        self.tts_engine.setProperty('rate', speech_rate)  # Set speech rate (speed)
+        # self.tts_engine = pyttsx3.init()
+        # voices = self.tts_engine.getProperty('voices')
+        # self.tts_engine.setProperty('voice', voices[1].id)  # Set the desired voice
+        # self.tts_engine.setProperty('rate', speech_rate)  # Set speech rate (speed)
 
         self.current_outfit = 'default'
         self.current_expression = 'normal'
@@ -149,6 +150,7 @@ class VirtualPet(QMainWindow):
         self.chat_box = QLineEdit(self)
         self.chat_box.setGeometry(10, 400, 380, 25)
         self.chat_box.setStyleSheet("background-color: white; color: black; border: 2px solid black; border-radius: 5px;")
+        self.chat_box.setPlaceholderText("Use the 'gpt:' prefix for ChatGPT.")
         self.chat_box.returnPressed.connect(self.process_command)  # Connect the returnPressed signal
 
     def init_sprite_item(self):
@@ -260,7 +262,6 @@ class VirtualPet(QMainWindow):
         # Check if the command starts with the prefix
         if not command.lower().startswith(prefix.lower()):
             self.chat_box.clear()
-            self.chat_box.setPlaceholderText("Use the 'gpt:' prefix for ChatGPT.")
             return
 
         # Remove the prefix from the command
@@ -296,14 +297,13 @@ class VirtualPet(QMainWindow):
             message = gpt_response  # Use the original message if no expression is found
 
         # Start the TTS worker
-        self.tts_worker = TTSWorker(self.tts_engine, message)
+        self.tts_worker = TTSWorker(message)
         self.tts_worker.start()
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     blink_speed = 25
     blink_timer = 4000
-    speech_rate = 225
-    pet = VirtualPet(blink_speed, blink_timer, speech_rate)
+    pet = VirtualPet(blink_speed, blink_timer)
     pet.show()
     sys.exit(app.exec_())

@@ -9,12 +9,12 @@ Like [Maid-Chan](https://www.youtube.com/watch?v=xHMDiscnKb4) from Sakurasou but
 - ChatGPT intergration
 - Different emotions
 - 3 Different outfits
-- AI Voice model (Coming soon)
+- AI Voice model
 - Conversation history
 - Volume commands
 
 ### To-Do list
-- [ ] AI Voice model
+- [x] AI Voice model
 - [ ] Basic utilities
 - [ ] More outfits
 - [ ] More expressions
