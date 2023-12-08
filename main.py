@@ -88,7 +88,10 @@ class ClickablePixmapItem(QGraphicsPixmapItem):
         self.virtual_assistant = virtual_assistant
 
     def mousePressEvent(self, event):
-        self.virtual_assistant.cycle_outfit()
+        if event.button() == Qt.LeftButton:
+            self.virtual_assistant.cycle_outfit()
+        elif event.button() == Qt.RightButton:
+            self.virtual_assistant.reverse_cycle_outfit()
 
 
 class VirtualAssistant(QMainWindow):
@@ -105,7 +108,8 @@ class VirtualAssistant(QMainWindow):
         self.conversation_history = []
 
         # Define possible outfits and expressions
-        self.outfits = ['default', 'cat', 'devil', 'mini', 'victorian', 'chinese', 'yukata', 'steampunk', 'gown', 'bikini', 'cyberpunk']
+        self.outfits = ['default', 'cat', 'devil', 'mini', 'victorian',
+                        'chinese', 'yukata', 'steampunk', 'gown', 'bikini', 'cyberpunk']
         self.expressions = ['normal', 'surprised', 'love']
 
         # Load sprites and blinking animation sprites
@@ -206,6 +210,13 @@ class VirtualAssistant(QMainWindow):
         # Cycle through the outfits
         current_index = self.outfits.index(self.current_outfit)
         new_index = (current_index + 1) % len(self.outfits)
+        self.current_outfit = self.outfits[new_index]
+        self.update_sprite()
+        self.save_outfit()
+
+    def reverse_cycle_outfit(self):
+        current_index = self.outfits.index(self.current_outfit)
+        new_index = (current_index - 1) % len(self.outfits)
         self.current_outfit = self.outfits[new_index]
         self.update_sprite()
         self.save_outfit()
@@ -344,7 +355,7 @@ class VirtualAssistant(QMainWindow):
     def handle_gpt_response(self, gpt_response):
         self.conversation_history.append(
             {"role": "assistant", "content": gpt_response})
-        
+
         # Save conversation history
         self.save_conversation_history()
 
