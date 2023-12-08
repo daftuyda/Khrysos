@@ -1,2 +1,4 @@
 
 .env
+conversation_history.json
+outfit_config.txt

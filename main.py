@@ -1,8 +1,9 @@
 import sys
 import os
 import ctypes
+import json
 from elevenlabs import generate, play
-from ctypes import cast, POINTER, wintypes
+from ctypes import cast, POINTER
 from comtypes import CLSCTX_ALL
 from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
 from dotenv import load_dotenv
@@ -104,7 +105,7 @@ class VirtualAssistant(QMainWindow):
         self.conversation_history = []
 
         # Define possible outfits and expressions
-        self.outfits = ['default', 'cat', 'devil']
+        self.outfits = ['default', 'cat', 'devil', 'mini', 'victorian', 'chinese', 'yukata', 'steampunk', 'gown', 'bikini', 'cyberpunk']
         self.expressions = ['normal', 'surprised', 'love']
 
         # Load sprites and blinking animation sprites
@@ -158,6 +159,10 @@ class VirtualAssistant(QMainWindow):
         # Initialize the sprite item with the current outfit and expression
         self.init_sprite_item()
 
+        # Load the outfit and conversation history
+        self.load_outfit()
+        self.load_conversation_history()
+
         # Position the window at the bottom right of the screen
         screen_geometry = QApplication.desktop().screenGeometry()
         x = screen_geometry.width() - self.width()
@@ -173,10 +178,29 @@ class VirtualAssistant(QMainWindow):
         self.chat_box.setFocus()
         self.chat_box.returnPressed.connect(self.process_command)
 
+    def save_conversation_history(self):
+        with open('conversation_history.json', 'w') as f:
+            json.dump(self.conversation_history, f)
+
+    def load_conversation_history(self):
+        if os.path.exists('conversation_history.json'):
+            with open('conversation_history.json', 'r') as f:
+                self.conversation_history = json.load(f)
+
     def init_sprite_item(self):
         initial_pixmap = self.sprites[self.current_outfit][self.current_expression]
         self.sprite_item = ClickablePixmapItem(initial_pixmap, self)
         self.scene.addItem(self.sprite_item)
+
+    def save_outfit(self):
+        with open('outfit_config.txt', 'w') as f:
+            f.write(self.current_outfit)
+
+    def load_outfit(self):
+        if os.path.exists('outfit_config.txt'):
+            with open('outfit_config.txt', 'r') as f:
+                self.current_outfit = f.read().strip()
+                self.update_sprite()
 
     def cycle_outfit(self):
         # Cycle through the outfits
@@ -184,11 +208,13 @@ class VirtualAssistant(QMainWindow):
         new_index = (current_index + 1) % len(self.outfits)
         self.current_outfit = self.outfits[new_index]
         self.update_sprite()
+        self.save_outfit()
 
     def change_outfit(self, new_outfit):
         if new_outfit in self.outfits:
             self.current_outfit = new_outfit
             self.update_sprite()
+            self.save_outfit()
 
     def change_expression(self, new_expression):
         if new_expression in self.expressions:
@@ -302,7 +328,10 @@ class VirtualAssistant(QMainWindow):
         # Add user command to history
         self.conversation_history.append({"role": "user", "content": command})
 
-        max_history_length = 25
+        # Save conversation history
+        self.save_conversation_history()
+
+        max_history_length = 50
         if len(self.conversation_history) > max_history_length:
             self.conversation_history = self.conversation_history[-max_history_length:]
 
@@ -315,6 +344,9 @@ class VirtualAssistant(QMainWindow):
     def handle_gpt_response(self, gpt_response):
         self.conversation_history.append(
             {"role": "assistant", "content": gpt_response})
+        
+        # Save conversation history
+        self.save_conversation_history()
 
         if gpt_response.startswith('[') and ']' in gpt_response:
             end_bracket_index = gpt_response.find(']')
@@ -330,6 +362,7 @@ class VirtualAssistant(QMainWindow):
             message = gpt_response  # Use the original message if no expression is found
 
         # Start the TTS worker
+        print(message)
         self.tts_worker = TTSWorker(message)
         self.tts_worker.start()
 
