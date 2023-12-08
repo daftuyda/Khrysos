@@ -41,20 +41,21 @@ def simulate_media_play_pause():
                 KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0)
 
 
-def tts_task(text, api_key, queue):
+def tts_task(texts, api_key, queue):
     try:
         set_api_key(api_key)
-        audio = generate(
-            text=text,
-            voice=Voice(
-                voice_id='CXFz1nBWCcj72XaSOBwT',
-                settings=VoiceSettings(
-                    stability=0.75, similarity_boost=0.6, style=0.5, use_speaker_boost=True)
-            ),
-            model="eleven_turbo_v2",
-            stream=True
-        )
-        stream(audio)
+        for text in texts:
+            audio = generate(
+                text=text,  # Use text directly
+                voice=Voice(
+                    voice_id='CXFz1nBWCcj72XaSOBwT',
+                    settings=VoiceSettings(
+                        stability=0.75, similarity_boost=0.6, style=0.5, use_speaker_boost=True)
+                ),
+                model="eleven_turbo_v2",
+                stream=True
+            )
+            stream(audio)
 
     except Exception as e:
         queue.put(str(e))
@@ -73,7 +74,7 @@ class GPTWorker(QThread):
     def run(self):
         try:
             messages = [
-                {"role": "system", "content": "Your name is YuKi, you are my personal assistant. Use casual language when responding. Be direct and concise and get to the point. Don't mention you are an AI. (With each response add an expression from 'Normal, Surprised, Love' to the start of the message in square brackets, use the often and don't use the same one more than twice in a row.)"}]
+                {"role": "system", "content": "Your name is YuKi, you are my personal assistant. Use casual language when responding. Be direct and concise and get to the point. Don't mention you are an AI. (With each response add an expression from 'Normal, Surprised, Love, Happy, Confused, Angry' to the start of the message in square brackets, use the often and don't use the same one more than twice in a row.)"}]
             messages += self.conversation_history
             messages.append({"role": "user", "content": self.message})
 
@@ -89,18 +90,22 @@ class GPTWorker(QThread):
 
 
 class TTSWorker:
-    def __init__(self, text):
-        self.text = text
+    def __init__(self, texts):
+        self.texts = texts
         self.api_key = os.getenv('ELEVENLABS_API_KEY')
         self.queue = Queue()
 
     def start(self):
         self.process = Process(target=tts_task, args=(
-            self.text, self.api_key, self.queue))
+            self.texts, self.api_key, self.queue))  # Pass the list of texts here
         self.process.start()
 
-    def is_finished(self):
-        return self.queue.get()  # This will block until an item is available
+    def is_running(self):
+        return self.process.is_alive()
+
+    def terminate(self):
+        if self.is_running():
+            self.process.terminate()
 
 
 class ClickablePixmapItem(QGraphicsPixmapItem):
@@ -131,7 +136,8 @@ class VirtualAssistant(QMainWindow):
         # Define possible outfits and expressions
         self.outfits = ['default', 'cat', 'devil', 'mini', 'victorian',
                         'chinese', 'yukata', 'steampunk', 'gown', 'bikini', 'cyberpunk']
-        self.expressions = ['normal', 'surprised', 'love']
+        self.expressions = ['normal', 'surprised', 'love', 'happy',
+                            'confused', 'angry']
 
         # Load sprites and blinking animation sprites
         self.sprites = {}
@@ -202,6 +208,18 @@ class VirtualAssistant(QMainWindow):
         self.chat_box.setPlaceholderText("Use the 'gpt:' prefix for ChatGPT.")
         self.chat_box.setFocus()
         self.chat_box.returnPressed.connect(self.process_command)
+
+    def closeEvent(self, event):
+        # Terminate the TTSWorker process if it's running
+        if hasattr(self, 'tts_worker') and self.tts_worker.process.is_alive():
+            self.tts_worker.process.terminate()
+
+        # Terminate the GPTWorker thread if it's running
+        if hasattr(self, 'gpt_worker') and self.gpt_worker.isRunning():
+            self.gpt_worker.terminate()
+            self.gpt_worker.wait()
+
+        event.accept()  # Accept the close event
 
     def save_conversation_history(self):
         with open('conversation_history.json', 'w') as f:
@@ -393,9 +411,11 @@ class VirtualAssistant(QMainWindow):
         else:
             message = gpt_response  # Use the original message if no expression is found
 
+        messages = [message]  # Wrap the response in a list
+
         # Start the TTS worker
         print(message)
-        self.tts_worker = TTSWorker(message)
+        self.tts_worker = TTSWorker(messages)
         self.tts_worker.start()
 
 
