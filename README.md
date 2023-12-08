@@ -9,6 +9,7 @@ Like [Maid-Chan](https://www.youtube.com/watch?v=xHMDiscnKb4) from Sakurasou but
 - ChatGPT intergration
 - Different emotions
 - 11 Different outfits
+- 6 Different expressions
 - AI Voice model
 - Conversation history
 - Media controls
@@ -17,7 +18,9 @@ Like [Maid-Chan](https://www.youtube.com/watch?v=xHMDiscnKb4) from Sakurasou but
 - [x] AI Voice model
 - [ ] Basic utilities
 - [x] More outfits
-- [ ] More expressions
+- [x] More expressions
 - [ ] Better text generation prompt
 - [x] Media controls
 - [ ] Youtube downloading
+- [x] Save space on conversation history
+- [x] Multiple personalities

@@ -2,6 +2,7 @@ import sys
 import os
 import ctypes
 import json
+import msgpack
 from multiprocessing import Process, Queue
 from elevenlabs import generate, play, stream, Voice, VoiceSettings, set_api_key
 from ctypes import cast, POINTER
@@ -40,13 +41,12 @@ def simulate_media_play_pause():
     keybd_event(VK_MEDIA_PLAY_PAUSE, 0,
                 KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0)
 
-
 def tts_task(texts, api_key, queue):
     try:
         set_api_key(api_key)
         for text in texts:
             audio = generate(
-                text=text,  # Use text directly
+                text=text,
                 voice=Voice(
                     voice_id='CXFz1nBWCcj72XaSOBwT',
                     settings=VoiceSettings(
@@ -60,21 +60,37 @@ def tts_task(texts, api_key, queue):
     except Exception as e:
         queue.put(str(e))
     finally:
-        queue.put("done")  # Signal that playback is finished
+        queue.put("done")
 
 
 class GPTWorker(QThread):
     finished = pyqtSignal(str)
 
-    def __init__(self, message, conversation_history):
+    def __init__(self, message, conversation_history, prompt_type="default"):
         super().__init__()
         self.message = message
         self.conversation_history = conversation_history
+        self.prompt_type = prompt_type
+        self.system_prompts = self.load_system_prompts()
+
+    @staticmethod
+    def load_system_prompts():
+        prompts = {}
+        prompt_dir = 'prompts/'  # Update with the correct path
+        for filename in os.listdir(prompt_dir):
+            if filename.endswith('.txt'):
+                prompt_type = filename.rsplit('.', 1)[0]  # Get the file name without the extension
+                with open(os.path.join(prompt_dir, filename), 'r') as file:
+                    prompts[prompt_type] = file.read().strip()
+        return prompts
 
     def run(self):
         try:
+            system_prompt = self.system_prompts.get(self.prompt_type, "default")
             messages = [
-                {"role": "system", "content": "Your name is YuKi, you are my personal assistant. Use casual language when responding. Be direct and concise and get to the point. Don't mention you are an AI. (With each response add an expression from 'Normal, Surprised, Love, Happy, Confused, Angry' to the start of the message in square brackets, use the often and don't use the same one more than twice in a row.)"}]
+                {"role": "system", "content": system_prompt + """(With each response add an expression from 'Normal, Surprised, Love, Happy, Confused, Angry' 
+                 to the start of the message in square brackets, use the often and don't use the same one more than twice in a row.)"""}
+            ]
             messages += self.conversation_history
             messages.append({"role": "user", "content": self.message})
 
@@ -119,7 +135,6 @@ class ClickablePixmapItem(QGraphicsPixmapItem):
         elif event.button() == Qt.RightButton:
             self.virtual_assistant.reverse_cycle_outfit()
 
-
 class VirtualAssistant(QMainWindow):
     def __init__(self, blink_speed=35, blink_timer=4000):
         super().__init__()
@@ -133,7 +148,7 @@ class VirtualAssistant(QMainWindow):
 
         self.conversation_history = []
 
-        # Define possible outfits and expressions
+        # Define outfits and expressions
         self.outfits = ['default', 'cat', 'devil', 'mini', 'victorian',
                         'chinese', 'yukata', 'steampunk', 'gown', 'bikini', 'cyberpunk']
         self.expressions = ['normal', 'surprised', 'love', 'happy',
@@ -161,25 +176,25 @@ class VirtualAssistant(QMainWindow):
                         int(QPixmap(
                             f'sprites/{outfit}/{expression}Blink{i}.png').height()),
                         Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                    for i in range(1, 4)]  # Assuming 3 frames for blinking animation
+                    for i in range(1, 4)]
 
         # Timer for blinking animation
         self.blink_timer = QTimer(self)
         self.blink_timer.timeout.connect(self.blink)
-        self.blink_timer.start(blink_timer)  # Interval for starting blink
+        self.blink_timer.start(blink_timer)
 
         # Timer for blinking animation frames
         self.blink_frame_timer = QTimer(self)
         self.blink_frame_timer.timeout.connect(self.blink_frame)
-        self.blink_frame_speed = blink_speed  # Milliseconds per frame
+        self.blink_frame_speed = blink_speed
 
         # Set up the rest of the window
-        self.setFixedSize(400, 440)  # Adjust size as needed
+        self.setFixedSize(400, 440)
         self.setWindowFlags(self.windowFlags() | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAutoFillBackground(False)
         self.view = QGraphicsView(self)
-        self.view.setGeometry(0, 0, 400, 450)  # Adjust size as needed
+        self.view.setGeometry(0, 0, 400, 450)
         self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.view.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.view.setStyleSheet("background: transparent; border: none;")
@@ -219,16 +234,16 @@ class VirtualAssistant(QMainWindow):
             self.gpt_worker.terminate()
             self.gpt_worker.wait()
 
-        event.accept()  # Accept the close event
+        event.accept()
 
     def save_conversation_history(self):
-        with open('conversation_history.json', 'w') as f:
-            json.dump(self.conversation_history, f)
+        with open('conversation_history.msgpack', 'wb') as f:
+            msgpack.dump(self.conversation_history, f)
 
     def load_conversation_history(self):
-        if os.path.exists('conversation_history.json'):
-            with open('conversation_history.json', 'r') as f:
-                self.conversation_history = json.load(f)
+        if os.path.exists('conversation_history.msgpack'):
+            with open('conversation_history.msgpack', 'rb') as f:
+                self.conversation_history = msgpack.load(f)
 
     def init_sprite_item(self):
         initial_pixmap = self.sprites[self.current_outfit][self.current_expression]
@@ -246,7 +261,6 @@ class VirtualAssistant(QMainWindow):
                 self.update_sprite()
 
     def cycle_outfit(self):
-        # Cycle through the outfits
         current_index = self.outfits.index(self.current_outfit)
         new_index = (current_index + 1) % len(self.outfits)
         self.current_outfit = self.outfits[new_index]
@@ -381,11 +395,11 @@ class VirtualAssistant(QMainWindow):
         # Save conversation history
         self.save_conversation_history()
 
-        max_history_length = 50
+        max_history_length = 100
         if len(self.conversation_history) > max_history_length:
             self.conversation_history = self.conversation_history[-max_history_length:]
 
-        self.gpt_worker = GPTWorker(command, self.conversation_history)
+        self.gpt_worker = GPTWorker(command, self.conversation_history, prompt_type="general")
         self.gpt_worker.finished.connect(self.handle_gpt_response)
         self.gpt_worker.start()
 
