@@ -1,12 +1,5 @@
 
 .env
-conversation_history.json
-outfit_config.txt
-<<<<<<< Updated upstream
-config.json
-=======
-conversation_history.msgpack
 *.msgpack
 *.json
 *.msgpack
->>>>>>> Stashed changes
