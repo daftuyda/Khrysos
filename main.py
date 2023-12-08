@@ -138,7 +138,8 @@ class ClickablePixmapItem(QGraphicsPixmapItem):
 class VirtualAssistant(QMainWindow):
     def __init__(self, blink_speed=35, blink_timer=4000):
         super().__init__()
-
+        
+        self.current_prompt_type = "default"
         self.current_outfit = 'default'
         self.current_expression = 'normal'
         self.isBlinking = False
@@ -205,8 +206,9 @@ class VirtualAssistant(QMainWindow):
         # Initialize the sprite item with the current outfit and expression
         self.init_sprite_item()
 
-        # Load the outfit and conversation history
-        self.load_outfit()
+        # Load the config and conversation history
+        self.config_file = 'config.json'
+        self.load_config()
         self.load_conversation_history()
 
         # Position the window at the bottom right of the screen
@@ -226,8 +228,13 @@ class VirtualAssistant(QMainWindow):
 
     def closeEvent(self, event):
         # Terminate the TTSWorker process if it's running
-        if hasattr(self, 'tts_worker') and self.tts_worker.process.is_alive():
-            self.tts_worker.process.terminate()
+        if hasattr(self, 'tts_worker'):
+            try:
+                if self.tts_worker.is_running():
+                    self.tts_worker.terminate()
+                self.tts_worker.process.join()  # Wait for the process to terminate
+            except Exception as e:
+                print(f"Error while terminating TTSWorker: {e}")
 
         # Terminate the GPTWorker thread if it's running
         if hasattr(self, 'gpt_worker') and self.gpt_worker.isRunning():
@@ -250,35 +257,44 @@ class VirtualAssistant(QMainWindow):
         self.sprite_item = ClickablePixmapItem(initial_pixmap, self)
         self.scene.addItem(self.sprite_item)
 
-    def save_outfit(self):
-        with open('outfit_config.txt', 'w') as f:
-            f.write(self.current_outfit)
+    def save_config(self):
+        config = {
+            'outfit': self.current_outfit,
+            'prompt_type': self.current_prompt_type
+        }
+        with open(self.config_file, 'w') as f:
+            json.dump(config, f, indent=4)
 
-    def load_outfit(self):
-        if os.path.exists('outfit_config.txt'):
-            with open('outfit_config.txt', 'r') as f:
-                self.current_outfit = f.read().strip()
-                self.update_sprite()
+    def load_config(self):
+        if os.path.exists(self.config_file):
+            with open(self.config_file, 'r') as f:
+                config = json.load(f)
+                self.current_outfit = config.get('outfit', 'default')
+                self.current_prompt_type = config.get('prompt_type', 'default')
+                self.update_sprite()  # Update the sprite with the loaded outfit
+        else:
+            self.current_outfit = 'default'
+            self.current_prompt_type = 'default'
 
     def cycle_outfit(self):
         current_index = self.outfits.index(self.current_outfit)
         new_index = (current_index + 1) % len(self.outfits)
         self.current_outfit = self.outfits[new_index]
         self.update_sprite()
-        self.save_outfit()
+        self.save_config()
 
     def reverse_cycle_outfit(self):
         current_index = self.outfits.index(self.current_outfit)
         new_index = (current_index - 1) % len(self.outfits)
         self.current_outfit = self.outfits[new_index]
         self.update_sprite()
-        self.save_outfit()
+        self.save_config()
 
     def change_outfit(self, new_outfit):
         if new_outfit in self.outfits:
             self.current_outfit = new_outfit
             self.update_sprite()
-            self.save_outfit()
+            self.save_config()
 
     def change_expression(self, new_expression):
         if new_expression in self.expressions:
@@ -380,6 +396,12 @@ class VirtualAssistant(QMainWindow):
             simulate_media_play_pause()
             self.chat_box.clear()
             return
+        elif command.lower().startswith("switch: "):
+            new_prompt_type = command[len("switch: "):].strip()
+            self.current_prompt_type = new_prompt_type
+            self.save_config()
+            self.chat_box.clear()
+            return
 
         # Check if the command starts with the prefix
         if not command.lower().startswith(prefix.lower()):
@@ -399,7 +421,7 @@ class VirtualAssistant(QMainWindow):
         if len(self.conversation_history) > max_history_length:
             self.conversation_history = self.conversation_history[-max_history_length:]
 
-        self.gpt_worker = GPTWorker(command, self.conversation_history, prompt_type="general")
+        self.gpt_worker = GPTWorker(command, self.conversation_history, prompt_type=self.current_prompt_type)
         self.gpt_worker.finished.connect(self.handle_gpt_response)
         self.gpt_worker.start()
 
