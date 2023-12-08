@@ -2,7 +2,8 @@ import sys
 import os
 import ctypes
 import json
-from elevenlabs import generate, play
+from multiprocessing import Process, Queue
+from elevenlabs import generate, play, stream, Voice, VoiceSettings, set_api_key
 from ctypes import cast, POINTER
 from comtypes import CLSCTX_ALL
 from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
@@ -40,6 +41,27 @@ def simulate_media_play_pause():
                 KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0)
 
 
+def tts_task(text, api_key, queue):
+    try:
+        set_api_key(api_key)
+        audio = generate(
+            text=text,
+            voice=Voice(
+                voice_id='CXFz1nBWCcj72XaSOBwT',
+                settings=VoiceSettings(
+                    stability=0.75, similarity_boost=0.6, style=0.5, use_speaker_boost=True)
+            ),
+            model="eleven_turbo_v2",
+            stream=True
+        )
+        stream(audio)
+
+    except Exception as e:
+        queue.put(str(e))
+    finally:
+        queue.put("done")  # Signal that playback is finished
+
+
 class GPTWorker(QThread):
     finished = pyqtSignal(str)
 
@@ -51,7 +73,7 @@ class GPTWorker(QThread):
     def run(self):
         try:
             messages = [
-                {"role": "system", "content": "Your name is YuKi, you are my personal assistant. Use casual language when responding. Keep responses short and concise. (With each response add an expression from 'Normal, Surprised, Love' to the start of the message in square brackets and change them often or at random.)"}]
+                {"role": "system", "content": "Your name is YuKi, you are my personal assistant. Use casual language when responding. Be direct and concise and get to the point. Don't mention you are an AI. (With each response add an expression from 'Normal, Surprised, Love' to the start of the message in square brackets, use the often and don't use the same one more than twice in a row.)"}]
             messages += self.conversation_history
             messages.append({"role": "user", "content": self.message})
 
@@ -66,20 +88,19 @@ class GPTWorker(QThread):
             self.finished.emit(str(e))
 
 
-class TTSWorker(QThread):
+class TTSWorker:
     def __init__(self, text):
-        super().__init__()
         self.text = text
-        # Ensure you've set this in your environment
         self.api_key = os.getenv('ELEVENLABS_API_KEY')
+        self.queue = Queue()
 
-        audio = generate(
-            text=text,
-            voice="Gigi",
-            model="eleven_turbo_v2"
-        )
+    def start(self):
+        self.process = Process(target=tts_task, args=(
+            self.text, self.api_key, self.queue))
+        self.process.start()
 
-        play(audio)
+    def is_finished(self):
+        return self.queue.get()  # This will block until an item is available
 
 
 class ClickablePixmapItem(QGraphicsPixmapItem):
