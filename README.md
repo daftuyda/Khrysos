@@ -1,7 +1,7 @@
 # Khrysos
 Virtual anime assistant - YuKi
 
-![YuKi](https://puu.sh/JW9HW.png)
+![YuKi](https://raw.githubusercontent.com/AmIVoid/Khrysos/main/outfits.gif)
 
 Like [Maid-Chan](https://www.youtube.com/watch?v=xHMDiscnKb4) from Sakurasou but worse.
 
