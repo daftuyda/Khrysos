@@ -14,13 +14,5 @@ Like [Maid-Chan](https://www.youtube.com/watch?v=xHMDiscnKb4) from Sakurasou but
 - Conversation history
 - Media controls
 
-### To-Do list
-- [x] AI Voice model
-- [ ] Basic utilities
-- [x] More outfits
-- [x] More expressions
-- [ ] Better text generation prompt
-- [x] Media controls
-- [ ] Youtube downloading
-- [x] Save space on conversation history
-- [x] Multiple personalities
+### [To-Do list](https://github.com/users/AmIVoid/projects/1/views/1)
+
