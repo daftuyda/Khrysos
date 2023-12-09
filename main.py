@@ -145,6 +145,7 @@ class VirtualAssistant(QMainWindow):
         self.current_expression = 'normal'
         self.isBlinking = False
         self.blinking_index = 0
+        self.no_tts_mode = False
 
         self.current = volume.GetMasterVolumeLevel()
 
@@ -424,6 +425,12 @@ class VirtualAssistant(QMainWindow):
             self.test_expressions_and_blink()
             self.chat_box.clear()
             return
+        elif command == "toggle":
+            self.no_tts_mode = not self.no_tts_mode  # Toggle the TTS mode
+            response = "TTS Mode Disabled" if self.no_tts_mode else "TTS Mode Enabled"
+            print(response)  # Or display this message in your application's interface
+            self.chat_box.clear()
+            return
 
         # Check if the command starts with the prefix
         if not command.lower().startswith(prefix.lower()):
@@ -471,10 +478,12 @@ class VirtualAssistant(QMainWindow):
 
         messages = [message]  # Wrap the response in a list
 
-        # Start the TTS worker
-        print(message)
-        self.tts_worker = TTSWorker(messages)
-        self.tts_worker.start()
+        if not self.no_tts_mode:  # Only proceed with TTS if the mode is enabled
+            messages = [message]  # Wrap the response in a list
+            self.tts_worker = TTSWorker(messages)
+            self.tts_worker.start()
+        else:
+            print(message)
 
 
 if __name__ == '__main__':
