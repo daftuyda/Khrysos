@@ -1,5 +1,6 @@
 import sys
 import os
+import time
 import ctypes
 import json
 import msgpack
@@ -310,21 +311,38 @@ class VirtualAssistant(QMainWindow):
         self.blinking_index = 0
         self.blink_frame_timer.start(self.blink_frame_speed)
 
-    def blink_frame(self):
-        if self.isBlinking:
+    def blink_frame(self, manual_control=False):
+        if self.isBlinking or manual_control:
             blink_sequence = self.blinking_sprites[self.current_outfit][self.current_expression]
 
-            # Ensure the index is within the range of blink_sequence
             if self.blinking_index < len(blink_sequence):
                 self.sprite_item.setPixmap(blink_sequence[self.blinking_index])
                 self.blinking_index += 1
             else:
-                # Reset blinking state
                 self.blinking_index = 0
                 self.isBlinking = False
-                self.blink_frame_timer.stop()
-                self.sprite_item.setPixmap(
-                    self.sprites[self.current_outfit][self.current_expression])
+                self.blink_frame_timer.stop() if not manual_control else None
+                self.sprite_item.setPixmap(self.sprites[self.current_outfit][self.current_expression])
+
+    def test_expressions_and_blink(self):
+        for expression in self.expressions:
+            self.change_expression(expression)
+            QApplication.processEvents()
+            time.sleep(1)
+
+            # Manually trigger and control the blink animation
+            self.isBlinking = True
+            for frame_index in range(4):  # Iterate through frames 0 to 4
+                self.blinking_index = frame_index
+                self.blink_frame(manual_control=True)
+                QApplication.processEvents()
+                time.sleep(0.25)  # Adjust timing as needed
+
+            # Reset to the normal state
+            self.isBlinking = False
+            self.blinking_index = 0
+            self.sprite_item.setPixmap(self.sprites[self.current_outfit][self.current_expression])
+            QApplication.processEvents()
 
     def process_command(self):
         command = self.chat_box.text().strip().lower()
@@ -400,6 +418,10 @@ class VirtualAssistant(QMainWindow):
             new_prompt_type = command[len("switch: "):].strip()
             self.current_prompt_type = new_prompt_type
             self.save_config()
+            self.chat_box.clear()
+            return
+        elif command == "test":
+            self.test_expressions_and_blink()
             self.chat_box.clear()
             return
 
