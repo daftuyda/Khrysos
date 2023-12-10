@@ -4,6 +4,7 @@ import time
 import ctypes
 import json
 import msgpack
+import threading
 from multiprocessing import Process, Queue
 from elevenlabs import generate, stream, Voice, VoiceSettings, set_api_key
 from ctypes import cast, POINTER
@@ -27,8 +28,8 @@ volume = cast(interface, POINTER(IAudioEndpointVolume))
 user32 = ctypes.WinDLL('user32', use_last_error=True)
 
 
-def keybdEvent(bVk, bScan, dwFlags, dwExtraInfo):
-    user32.keybdEvent(bVk, bScan, dwFlags, dwExtraInfo)
+def keybd_event(bVk, bScan, dwFlags, dwExtraInfo):
+    user32.keybd_event(bVk, bScan, dwFlags, dwExtraInfo)
 
 
 # Constants for the Play/Pause key
@@ -38,9 +39,9 @@ KEYEVENTF_KEYUP = 0x2
 
 
 def simulatePlayPause():
-    keybdEvent(VK_MEDIA_PLAY_PAUSE, 0, KEYEVENTF_EXTENDEDKEY, 0)
-    keybdEvent(VK_MEDIA_PLAY_PAUSE, 0,
-               KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0)
+    keybd_event(VK_MEDIA_PLAY_PAUSE, 0, KEYEVENTF_EXTENDEDKEY, 0)
+    keybd_event(VK_MEDIA_PLAY_PAUSE, 0,
+                KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0)
 
 
 def ttsTask(texts, apiKey, queue):
@@ -141,7 +142,10 @@ class ClickablePixmapItem(QGraphicsPixmapItem):
 
 
 class VirtualAssistant(QMainWindow):
-    def __init__(self, blinkSpeed=35, blinkTimer=4000):
+
+    displayDelayedResponse = pyqtSignal(str)
+
+    def __init__(self, blinkSpeed=35, blinkTimer=4000, delayDuration=5, bubbleTimerDuration=10000, maxHistoryLength=100):
         super().__init__()
 
         self.currentPromptType = "default"
@@ -169,10 +173,10 @@ class VirtualAssistant(QMainWindow):
             self.blinkingSprites[outfit] = {}
             for expression in self.expressions:
                 # Load regular sprites
-                sprite_path = f'sprites/{outfit}/{expression}.png'
-                self.sprites[outfit][expression] = QPixmap(sprite_path).scaled(
-                    int(QPixmap(sprite_path).width()),
-                    int(QPixmap(sprite_path).height()),
+                spritePath = f'sprites/{outfit}/{expression}.png'
+                self.sprites[outfit][expression] = QPixmap(spritePath).scaled(
+                    int(QPixmap(spritePath).width()),
+                    int(QPixmap(spritePath).height()),
                     Qt.KeepAspectRatio, Qt.SmoothTransformation)
 
                 # Load blinking animation sprites
@@ -204,6 +208,11 @@ class VirtualAssistant(QMainWindow):
         self.blinkFrameTimer = QTimer(self)
         self.blinkFrameTimer.timeout.connect(self.blinkFrame)
         self.blinkFrameSpeed = blinkSpeed
+
+        # Set the delay and bubble timer durations
+        self.delayDuration = delayDuration
+        self.bubbleTimerDuration = bubbleTimerDuration
+        self.maxHistoryLength = maxHistoryLength
 
         # Set up the rest of the window
         self.setFixedSize(400, 450)
@@ -244,10 +253,10 @@ class VirtualAssistant(QMainWindow):
         self.messageLabel.setFont(customFont)
 
         # Adjust these values to move the message label
-        xPosition = 10  # Example x coordinate
-        yPosition = 10  # Example y coordinate
-        labelWidth = 100  # Width of the label
-        labelHeight = 180  # Height of the label
+        xPosition = 10
+        yPosition = 10
+        labelWidth = 100
+        labelHeight = 180
         self.messageLabel.setGeometry(
             xPosition, yPosition, labelWidth, labelHeight)
         self.messageLabel.setWordWrap(True)
@@ -255,6 +264,7 @@ class VirtualAssistant(QMainWindow):
         # Create a QTimer for hiding the speech bubble
         self.hideBubbleTimer = QTimer(self)
         self.hideBubbleTimer.timeout.connect(self.hideSpeechBubble)
+
         # The timer should work only once per activation
         self.hideBubbleTimer.setSingleShot(True)
 
@@ -269,6 +279,9 @@ class VirtualAssistant(QMainWindow):
         self.chatBox.setPlaceholderText("Use the 'gpt:' prefix for ChatGPT.")
         self.chatBox.setFocus()
         self.chatBox.returnPressed.connect(self.processCommand)
+
+        # Connect the custom signal to the slot
+        self.displayDelayedResponse.connect(self.updateDisplayForTTS)
 
     def closeEvent(self, event):
         # Terminate the TTSWorker process if it's running
@@ -387,6 +400,16 @@ class VirtualAssistant(QMainWindow):
         self.speechBubbleItem.setVisible(False)
         self.messageLabel.clear()  # Clear the text from the message label
 
+    def getHelpMessage(self):
+        helpMessage = (
+            "Available Commands:\n"
+            "- volume\n"
+            "- hide/show\n"
+            "- pause/play\n"
+            "- switch [prompt]\n"
+        )
+        return helpMessage
+
     def processCommand(self):
         command = self.chatBox.text().strip().lower()
 
@@ -457,30 +480,35 @@ class VirtualAssistant(QMainWindow):
             simulatePlayPause()
             self.chatBox.clear()
             return
-        elif command.lower().startswith("switch: "):
-            new_promptType = command[len("switch: "):].strip()
-            self.currentPromptType = new_promptType
+        elif command.lower().startswith("switch "):
+            newPromptType = command[len("switch "):].strip()
+            self.currentPromptType = newPromptType
             self.saveConfig()
             self.chatBox.clear()
             return
-        elif command == "test":
-            self.testExpressions()
-            self.chatBox.clear()
-            return
+        # elif command == "test":
+        #     self.testExpressions()
+        #     self.chatBox.clear()
+        #     return
         elif command == "toggle":
             self.noTtsMode = not self.noTtsMode  # Toggle the TTS mode
             response = "TTS Mode Disabled" if self.noTtsMode else "TTS Mode Enabled"
-            # Or display this message in your application's interface
             print(response)
             self.chatBox.clear()
             return
         elif command == "message":
             defaultMessage = "This is the default message."
             self.speechBubbleItem.setVisible(True)  # Show the speech bubble
-            # Hide after 5000 milliseconds (5 seconds)
-            self.hideBubbleTimer.start(5000)
+            self.hideBubbleTimer.start(self.bubbleTimerDuration)
             self.messageLabel.setText(defaultMessage)
             print("Default message set")  # Debugging message
+            self.chatBox.clear()
+            return
+        elif command == "help":
+            helpMessage = self.getHelpMessage()
+            self.speechBubbleItem.setVisible(True)
+            self.hideBubbleTimer.start(self.bubbleTimerDuration)
+            self.messageLabel.setText(helpMessage)
             self.chatBox.clear()
             return
 
@@ -498,9 +526,8 @@ class VirtualAssistant(QMainWindow):
         # Save conversation history
         self.saveConversationHistory()
 
-        maxHistoryLength = 100
-        if len(self.conversationHistory) > maxHistoryLength:
-            self.conversationHistory = self.conversationHistory[-maxHistoryLength:]
+        if len(self.conversationHistory) > self.maxHistoryLength:
+            self.conversationHistory = self.conversationHistory[-self.maxHistoryLength:]
 
         self.gptWorker = GPTWorker(
             command, self.conversationHistory, promptType=self.currentPromptType)
@@ -529,15 +556,21 @@ class VirtualAssistant(QMainWindow):
         else:
             message = gptResponse  # Use the original message if no expression is found
 
-        messages = [message]  # Wrap the response in a list
+        # Use threading to introduce delay
+        threading.Thread(target=self.delayedDisplay, args=(message,)).start()
 
+    def delayedDisplay(self, message):
+        time.sleep(self.delayDuration)
+        self.displayDelayedResponse.emit(message)
+
+    def updateDisplayForTTS(self, message):
+        # This method runs in the main thread
         self.messageLabel.setText(message)
-        self.speechBubbleItem.setVisible(True)  # Show the speech bubble
-        # Hide after 5000 milliseconds (5 seconds)
-        self.hideBubbleTimer.start(5000)
+        self.speechBubbleItem.setVisible(True)
+        self.hideBubbleTimer.start(self.bubbleTimerDuration)
 
-        if not self.noTtsMode:  # Only proceed with TTS if the mode is enabled
-            messages = [message]  # Wrap the response in a list
+        if not self.noTtsMode:
+            messages = [message]  # Prepare the message for TTS
             self.ttsWorker = TTSWorker(messages)
             self.ttsWorker.start()
         else:
@@ -548,6 +581,10 @@ if __name__ == '__main__':
     app = QApplication(sys.argv)
     blinkSpeed = 25
     blinkTimer = 4000
-    assistant = VirtualAssistant(blinkSpeed, blinkTimer)
+    delayDuration = 5
+    bubbleTimerDuration = 10000
+    maxHistoryLength = 100
+    assistant = VirtualAssistant(
+        blinkSpeed, blinkTimer, delayDuration, bubbleTimerDuration, maxHistoryLength)
     assistant.show()
     sys.exit(app.exec_())
