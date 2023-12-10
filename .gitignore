@@ -3,5 +3,4 @@
 *.msgpack
 *.json
 *.msgpack
-vts.py
-tts.py
+*.db

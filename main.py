@@ -3,8 +3,8 @@ import os
 import time
 import ctypes
 import json
-import msgpack
 import threading
+import sqlite3
 from multiprocessing import Process, Queue
 from elevenlabs import generate, stream, Voice, VoiceSettings, set_api_key
 from ctypes import cast, POINTER
@@ -51,9 +51,9 @@ def ttsTask(texts, apiKey, queue):
             audio = generate(
                 text=text,
                 voice=Voice(
-                    voice_id='CXFz1nBWCcj72XaSOBwT',
+                    voice_id='EqudVpb9UKv174PwNcST',
                     settings=VoiceSettings(
-                        stability=0.75, similarity_boost=0.6, style=0.5, use_speaker_boost=True)
+                        stability=0.35, similarity_boost=0.4, style=0.0, use_speaker_boost=True)
                 ),
                 model="eleven_turbo_v2",
                 stream=True
@@ -145,8 +145,12 @@ class VirtualAssistant(QMainWindow):
 
     displayDelayedResponse = pyqtSignal(str)
 
-    def __init__(self, blinkSpeed=35, blinkTimer=4000, delayDuration=5, bubbleTimerDuration=10000, maxHistoryLength=100):
+    def __init__(self, blinkSpeed=35, blinkTimer=4000, delayDuration=5, bubbleTimerDuration=10000):
         super().__init__()
+
+        self.dbConnection = sqlite3.connect('conversationHistory.db')
+        self.dbCursor = self.dbConnection.cursor()
+        self.createDatabase()
 
         self.currentPromptType = "default"
         self.currentOutfit = 'default'
@@ -212,7 +216,6 @@ class VirtualAssistant(QMainWindow):
         # Set the delay and bubble timer durations
         self.delayDuration = delayDuration
         self.bubbleTimerDuration = bubbleTimerDuration
-        self.maxHistoryLength = maxHistoryLength
 
         # Set up the rest of the window
         self.setFixedSize(400, 450)
@@ -283,6 +286,32 @@ class VirtualAssistant(QMainWindow):
         # Connect the custom signal to the slot
         self.displayDelayedResponse.connect(self.updateDisplayForTTS)
 
+    def createDatabase(self):
+        self.dbCursor.execute('''CREATE TABLE IF NOT EXISTS history
+                                (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                role TEXT,
+                                content TEXT,
+                                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+        self.dbConnection.commit()
+
+    def saveConversationHistory(self, entry=None):
+        if entry is not None:
+            # Save only the provided entry
+            self.dbCursor.execute("INSERT INTO history (role, content) VALUES (?, ?)",
+                                  (entry['role'], entry['content']))
+        else:
+            # Save the entire conversation history
+            for entry in self.conversationHistory:
+                self.dbCursor.execute("INSERT INTO history (role, content) VALUES (?, ?)",
+                                      (entry['role'], entry['content']))
+        self.dbConnection.commit()
+
+    def loadConversationHistory(self):
+        self.conversationHistory = []
+        for row in self.dbCursor.execute("SELECT role, content FROM history ORDER BY timestamp"):
+            self.conversationHistory.append(
+                {"role": row[0], "content": row[1]})
+
     def closeEvent(self, event):
         # Terminate the TTSWorker process if it's running
         if hasattr(self, 'ttsWorker'):
@@ -298,16 +327,8 @@ class VirtualAssistant(QMainWindow):
             self.gptWorker.terminate()
             self.gptWorker.wait()
 
+        self.dbConnection.close()
         event.accept()
-
-    def saveConversationHistory(self):
-        with open('conversationHistory.msgpack', 'wb') as f:
-            msgpack.dump(self.conversationHistory, f)
-
-    def loadConversationHistory(self):
-        if os.path.exists('conversationHistory.msgpack'):
-            with open('conversationHistory.msgpack', 'rb') as f:
-                self.conversationHistory = msgpack.load(f)
 
     def initSpriteItem(self):
         initialPixmap = self.sprites[self.currentOutfit][self.currentExpression]
@@ -521,13 +542,9 @@ class VirtualAssistant(QMainWindow):
         command = command[len(prefix):].strip().lower()
 
         # Add user command to history
-        self.conversationHistory.append({"role": "user", "content": command})
-
-        # Save conversation history
-        self.saveConversationHistory()
-
-        if len(self.conversationHistory) > self.maxHistoryLength:
-            self.conversationHistory = self.conversationHistory[-self.maxHistoryLength:]
+        newUserEntry = {"role": "user", "content": command}
+        self.conversationHistory.append(newUserEntry)
+        self.saveConversationHistory(newUserEntry)
 
         self.gptWorker = GPTWorker(
             command, self.conversationHistory, promptType=self.currentPromptType)
@@ -537,11 +554,9 @@ class VirtualAssistant(QMainWindow):
         self.chatBox.clear()
 
     def handleGptResponse(self, gptResponse):
-        self.conversationHistory.append(
-            {"role": "assistant", "content": gptResponse})
-
-        # Save conversation history
-        self.saveConversationHistory()
+        newAssistantEntry = {"role": "assistant", "content": gptResponse}
+        self.conversationHistory.append(newAssistantEntry)
+        self.saveConversationHistory(newAssistantEntry)
 
         if gptResponse.startswith('[') and ']' in gptResponse:
             endBracketIndex = gptResponse.find(']')
@@ -582,9 +597,8 @@ if __name__ == '__main__':
     blinkSpeed = 25
     blinkTimer = 4000
     delayDuration = 5
-    bubbleTimerDuration = 10000
-    maxHistoryLength = 100
+    bubbleTimerDuration = 1000
     assistant = VirtualAssistant(
-        blinkSpeed, blinkTimer, delayDuration, bubbleTimerDuration, maxHistoryLength)
+        blinkSpeed, blinkTimer, delayDuration, bubbleTimerDuration)
     assistant.show()
     sys.exit(app.exec_())
