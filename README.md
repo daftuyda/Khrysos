@@ -7,7 +7,6 @@ Like [Maid-Chan](https://www.youtube.com/watch?v=xHMDiscnKb4) from Sakurasou but
 
 ## Features
 - ChatGPT intergration
-- Different emotions
 - 11 Different outfits
 - 6 Different expressions
 - AI Voice model
