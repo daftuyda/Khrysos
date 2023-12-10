@@ -5,14 +5,14 @@ import ctypes
 import json
 import msgpack
 from multiprocessing import Process, Queue
-from elevenlabs import generate, play, stream, Voice, VoiceSettings, set_api_key
+from elevenlabs import generate, stream, Voice, VoiceSettings, set_api_key
 from ctypes import cast, POINTER
 from comtypes import CLSCTX_ALL
 from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
 from dotenv import load_dotenv
 from openai import OpenAI
-from PyQt5.QtWidgets import QApplication, QMainWindow, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QLineEdit
-from PyQt5.QtGui import QPixmap
+from PyQt5.QtWidgets import QApplication, QMainWindow, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QLineEdit, QLabel
+from PyQt5.QtGui import QPixmap, QFont, QFontDatabase
 from PyQt5.QtCore import QTimer, Qt, QThread, pyqtSignal
 
 load_dotenv()
@@ -41,6 +41,7 @@ def simulate_media_play_pause():
     keybd_event(VK_MEDIA_PLAY_PAUSE, 0, KEYEVENTF_EXTENDEDKEY, 0)
     keybd_event(VK_MEDIA_PLAY_PAUSE, 0,
                 KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0)
+
 
 def tts_task(texts, api_key, queue):
     try:
@@ -80,17 +81,19 @@ class GPTWorker(QThread):
         prompt_dir = 'prompts/'  # Update with the correct path
         for filename in os.listdir(prompt_dir):
             if filename.endswith('.txt'):
-                prompt_type = filename.rsplit('.', 1)[0]  # Get the file name without the extension
+                # Get the file name without the extension
+                prompt_type = filename.rsplit('.', 1)[0]
                 with open(os.path.join(prompt_dir, filename), 'r') as file:
                     prompts[prompt_type] = file.read().strip()
         return prompts
 
     def run(self):
         try:
-            system_prompt = self.system_prompts.get(self.prompt_type, "default")
+            system_prompt = self.system_prompts.get(
+                self.prompt_type, "default")
             messages = [
                 {"role": "system", "content": system_prompt + """(With each response add an expression from 'Normal, Surprised, Love, Happy, Confused, Angry' 
-                 to the start of the message in square brackets, use the often and don't use the same one more than twice in a row.)"""}
+                 to the start of the message in square brackets, use the often and don't use the same one more than twice in a row.) Keep messages to a 110 character limit if possible."""}
             ]
             messages += self.conversation_history
             messages.append({"role": "user", "content": self.message})
@@ -136,10 +139,11 @@ class ClickablePixmapItem(QGraphicsPixmapItem):
         elif event.button() == Qt.RightButton:
             self.virtual_assistant.reverse_cycle_outfit()
 
+
 class VirtualAssistant(QMainWindow):
     def __init__(self, blink_speed=35, blink_timer=4000):
         super().__init__()
-        
+
         self.current_prompt_type = "default"
         self.current_outfit = 'default'
         self.current_expression = 'normal'
@@ -181,6 +185,16 @@ class VirtualAssistant(QMainWindow):
                         Qt.KeepAspectRatio, Qt.SmoothTransformation)
                     for i in range(1, 4)]
 
+        # Load the local font
+        font_id = QFontDatabase.addApplicationFont("font/dogicapixel.ttf")
+        if font_id == -1:
+            print("Failed to load font")
+        else:
+            font_family = QFontDatabase.applicationFontFamilies(font_id)[0]
+            custom_font = QFont(font_family)
+            custom_font.setPointSize(6)
+            custom_font.setLetterSpacing(QFont.PercentageSpacing, 90)
+
         # Timer for blinking animation
         self.blink_timer = QTimer(self)
         self.blink_timer.timeout.connect(self.blink)
@@ -192,12 +206,12 @@ class VirtualAssistant(QMainWindow):
         self.blink_frame_speed = blink_speed
 
         # Set up the rest of the window
-        self.setFixedSize(400, 440)
+        self.setFixedSize(400, 450)
         self.setWindowFlags(self.windowFlags() | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAutoFillBackground(False)
         self.view = QGraphicsView(self)
-        self.view.setGeometry(0, 0, 400, 450)
+        self.view.setGeometry(-100, -50, 500, 450)
         self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.view.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.view.setStyleSheet("background: transparent; border: none;")
@@ -218,6 +232,35 @@ class VirtualAssistant(QMainWindow):
         x = screen_geometry.width() - self.width()
         y = screen_geometry.height() - self.height()
         self.move(x, y)
+
+        # Load and position the speech bubble sprite
+        speech_bubble_pixmap = QPixmap('sprites/bubble.png')
+        self.speech_bubble_item = QGraphicsPixmapItem(speech_bubble_pixmap)
+        # Top left position, adjust as needed
+        self.speech_bubble_item.setPos(-100, -100)
+        self.scene.addItem(self.speech_bubble_item)
+
+        # Initialize and position the message QLabel
+        self.message_label = QLabel(self)
+        self.message_label.setFont(custom_font)
+
+        # Adjust these values to move the message label
+        x_position = 10  # Example x coordinate
+        y_position = 10  # Example y coordinate
+        label_width = 100  # Width of the label
+        label_height = 180  # Height of the label
+        self.message_label.setGeometry(
+            x_position, y_position, label_width, label_height)
+        self.message_label.setWordWrap(True)
+
+        # Create a QTimer for hiding the speech bubble
+        self.hide_bubble_timer = QTimer(self)
+        self.hide_bubble_timer.timeout.connect(self.hideSpeechBubble)
+        # The timer should work only once per activation
+        self.hide_bubble_timer.setSingleShot(True)
+
+        # Initially, the speech bubble is hidden
+        self.speech_bubble_item.setVisible(False)
 
         # Add a chat box
         self.chat_box = QLineEdit(self)
@@ -323,7 +366,8 @@ class VirtualAssistant(QMainWindow):
                 self.blinking_index = 0
                 self.isBlinking = False
                 self.blink_frame_timer.stop() if not manual_control else None
-                self.sprite_item.setPixmap(self.sprites[self.current_outfit][self.current_expression])
+                self.sprite_item.setPixmap(
+                    self.sprites[self.current_outfit][self.current_expression])
 
     def test_expressions_and_blink(self):
         for expression in self.expressions:
@@ -342,8 +386,13 @@ class VirtualAssistant(QMainWindow):
             # Reset to the normal state
             self.isBlinking = False
             self.blinking_index = 0
-            self.sprite_item.setPixmap(self.sprites[self.current_outfit][self.current_expression])
+            self.sprite_item.setPixmap(
+                self.sprites[self.current_outfit][self.current_expression])
             QApplication.processEvents()
+
+    def hideSpeechBubble(self):
+        self.speech_bubble_item.setVisible(False)
+        self.message_label.clear()  # Clear the text from the message label
 
     def process_command(self):
         command = self.chat_box.text().strip().lower()
@@ -428,7 +477,17 @@ class VirtualAssistant(QMainWindow):
         elif command == "toggle":
             self.no_tts_mode = not self.no_tts_mode  # Toggle the TTS mode
             response = "TTS Mode Disabled" if self.no_tts_mode else "TTS Mode Enabled"
-            print(response)  # Or display this message in your application's interface
+            # Or display this message in your application's interface
+            print(response)
+            self.chat_box.clear()
+            return
+        elif command == "message":
+            default_message = "This is the default message."
+            self.speech_bubble_item.setVisible(True)  # Show the speech bubble
+            # Hide after 5000 milliseconds (5 seconds)
+            self.hide_bubble_timer.start(5000)
+            self.message_label.setText(default_message)
+            print("Default message set")  # Debugging message
             self.chat_box.clear()
             return
 
@@ -450,7 +509,8 @@ class VirtualAssistant(QMainWindow):
         if len(self.conversation_history) > max_history_length:
             self.conversation_history = self.conversation_history[-max_history_length:]
 
-        self.gpt_worker = GPTWorker(command, self.conversation_history, prompt_type=self.current_prompt_type)
+        self.gpt_worker = GPTWorker(
+            command, self.conversation_history, prompt_type=self.current_prompt_type)
         self.gpt_worker.finished.connect(self.handle_gpt_response)
         self.gpt_worker.start()
 
@@ -477,6 +537,11 @@ class VirtualAssistant(QMainWindow):
             message = gpt_response  # Use the original message if no expression is found
 
         messages = [message]  # Wrap the response in a list
+
+        self.message_label.setText(message)
+        self.speech_bubble_item.setVisible(True)  # Show the speech bubble
+        # Hide after 5000 milliseconds (5 seconds)
+        self.hide_bubble_timer.start(5000)
 
         if not self.no_tts_mode:  # Only proceed with TTS if the mode is enabled
             messages = [message]  # Wrap the response in a list
