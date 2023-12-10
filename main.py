@@ -17,8 +17,8 @@ from PyQt5.QtCore import QTimer, Qt, QThread, pyqtSignal
 
 load_dotenv()
 
-openai_key = os.getenv('OPENAI_API_KEY')
-client = OpenAI(api_key=openai_key)
+openAiKey = os.getenv('OPENAI_API_KEY')
+client = OpenAI(api_key=openAiKey)
 
 devices = AudioUtilities.GetSpeakers()
 interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
@@ -27,8 +27,8 @@ volume = cast(interface, POINTER(IAudioEndpointVolume))
 user32 = ctypes.WinDLL('user32', use_last_error=True)
 
 
-def keybd_event(bVk, bScan, dwFlags, dwExtraInfo):
-    user32.keybd_event(bVk, bScan, dwFlags, dwExtraInfo)
+def keybdEvent(bVk, bScan, dwFlags, dwExtraInfo):
+    user32.keybdEvent(bVk, bScan, dwFlags, dwExtraInfo)
 
 
 # Constants for the Play/Pause key
@@ -37,15 +37,15 @@ KEYEVENTF_EXTENDEDKEY = 0x1
 KEYEVENTF_KEYUP = 0x2
 
 
-def simulate_media_play_pause():
-    keybd_event(VK_MEDIA_PLAY_PAUSE, 0, KEYEVENTF_EXTENDEDKEY, 0)
-    keybd_event(VK_MEDIA_PLAY_PAUSE, 0,
-                KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0)
+def simulatePlayPause():
+    keybdEvent(VK_MEDIA_PLAY_PAUSE, 0, KEYEVENTF_EXTENDEDKEY, 0)
+    keybdEvent(VK_MEDIA_PLAY_PAUSE, 0,
+               KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0)
 
 
-def tts_task(texts, api_key, queue):
+def ttsTask(texts, apiKey, queue):
     try:
-        set_api_key(api_key)
+        set_api_key(apiKey)
         for text in texts:
             audio = generate(
                 text=text,
@@ -68,34 +68,34 @@ def tts_task(texts, api_key, queue):
 class GPTWorker(QThread):
     finished = pyqtSignal(str)
 
-    def __init__(self, message, conversation_history, prompt_type="default"):
+    def __init__(self, message, conversationHistory, promptType="default"):
         super().__init__()
         self.message = message
-        self.conversation_history = conversation_history
-        self.prompt_type = prompt_type
-        self.system_prompts = self.load_system_prompts()
+        self.conversationHistory = conversationHistory
+        self.promptType = promptType
+        self.systemPrompts = self.loadSystemPrompts()
 
     @staticmethod
-    def load_system_prompts():
+    def loadSystemPrompts():
         prompts = {}
-        prompt_dir = 'prompts/'  # Update with the correct path
-        for filename in os.listdir(prompt_dir):
+        promptDir = 'prompts/'  # Update with the correct path
+        for filename in os.listdir(promptDir):
             if filename.endswith('.txt'):
                 # Get the file name without the extension
-                prompt_type = filename.rsplit('.', 1)[0]
-                with open(os.path.join(prompt_dir, filename), 'r') as file:
-                    prompts[prompt_type] = file.read().strip()
+                promptType = filename.rsplit('.', 1)[0]
+                with open(os.path.join(promptDir, filename), 'r') as file:
+                    prompts[promptType] = file.read().strip()
         return prompts
 
     def run(self):
         try:
-            system_prompt = self.system_prompts.get(
-                self.prompt_type, "default")
+            systemPrompt = self.systemPrompts.get(
+                self.promptType, "default")
             messages = [
-                {"role": "system", "content": system_prompt + """(With each response add an expression from 'Normal, Surprised, Love, Happy, Confused, Angry' 
+                {"role": "system", "content": systemPrompt + """(With each response add an expression from 'Normal, Surprised, Love, Happy, Confused, Angry' 
                  to the start of the message in square brackets, use the often and don't use the same one more than twice in a row.) Keep messages to a 110 character limit if possible."""}
             ]
-            messages += self.conversation_history
+            messages += self.conversationHistory
             messages.append({"role": "user", "content": self.message})
 
             response = client.chat.completions.create(
@@ -103,8 +103,8 @@ class GPTWorker(QThread):
                 messages=messages
             )
 
-            assistant_message = response.choices[0].message.content.strip()
-            self.finished.emit(assistant_message)
+            assistantMessage = response.choices[0].message.content.strip()
+            self.finished.emit(assistantMessage)
         except Exception as e:
             self.finished.emit(str(e))
 
@@ -112,48 +112,48 @@ class GPTWorker(QThread):
 class TTSWorker:
     def __init__(self, texts):
         self.texts = texts
-        self.api_key = os.getenv('ELEVENLABS_API_KEY')
+        self.apiKey = os.getenv('ELEVENLABS_API_KEY')
         self.queue = Queue()
 
     def start(self):
-        self.process = Process(target=tts_task, args=(
-            self.texts, self.api_key, self.queue))  # Pass the list of texts here
+        self.process = Process(target=ttsTask, args=(
+            self.texts, self.apiKey, self.queue))  # Pass the list of texts here
         self.process.start()
 
-    def is_running(self):
+    def isRunning(self):
         return self.process.is_alive()
 
     def terminate(self):
-        if self.is_running():
+        if self.isRunning():
             self.process.terminate()
 
 
 class ClickablePixmapItem(QGraphicsPixmapItem):
-    def __init__(self, pixmap, virtual_assistant, parent=None):
+    def __init__(self, pixmap, virtualAssistant, parent=None):
         super().__init__(pixmap, parent)
-        self.virtual_assistant = virtual_assistant
+        self.virtualAssistant = virtualAssistant
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            self.virtual_assistant.cycle_outfit()
+            self.virtualAssistant.cycleOutfit()
         elif event.button() == Qt.RightButton:
-            self.virtual_assistant.reverse_cycle_outfit()
+            self.virtualAssistant.reverseCycleOutfit()
 
 
 class VirtualAssistant(QMainWindow):
-    def __init__(self, blink_speed=35, blink_timer=4000):
+    def __init__(self, blinkSpeed=35, blinkTimer=4000):
         super().__init__()
 
-        self.current_prompt_type = "default"
-        self.current_outfit = 'default'
-        self.current_expression = 'normal'
+        self.currentPromptType = "default"
+        self.currentOutfit = 'default'
+        self.currentExpression = 'normal'
         self.isBlinking = False
-        self.blinking_index = 0
-        self.no_tts_mode = False
+        self.blinkingIndex = 0
+        self.noTtsMode = False
 
         self.current = volume.GetMasterVolumeLevel()
 
-        self.conversation_history = []
+        self.conversationHistory = []
 
         # Define outfits and expressions
         self.outfits = ['default', 'cat', 'devil', 'mini', 'victorian',
@@ -163,10 +163,10 @@ class VirtualAssistant(QMainWindow):
 
         # Load sprites and blinking animation sprites
         self.sprites = {}
-        self.blinking_sprites = {}
+        self.blinkingSprites = {}
         for outfit in self.outfits:
             self.sprites[outfit] = {}
-            self.blinking_sprites[outfit] = {}
+            self.blinkingSprites[outfit] = {}
             for expression in self.expressions:
                 # Load regular sprites
                 sprite_path = f'sprites/{outfit}/{expression}.png'
@@ -176,7 +176,7 @@ class VirtualAssistant(QMainWindow):
                     Qt.KeepAspectRatio, Qt.SmoothTransformation)
 
                 # Load blinking animation sprites
-                self.blinking_sprites[outfit][expression] = [
+                self.blinkingSprites[outfit][expression] = [
                     QPixmap(f'sprites/{outfit}/{expression}Blink{i}.png').scaled(
                         int(QPixmap(
                             f'sprites/{outfit}/{expression}Blink{i}.png').width()),
@@ -186,24 +186,24 @@ class VirtualAssistant(QMainWindow):
                     for i in range(1, 4)]
 
         # Load the local font
-        font_id = QFontDatabase.addApplicationFont("font/dogicapixel.ttf")
-        if font_id == -1:
+        fontId = QFontDatabase.addApplicationFont("font/dogicapixel.ttf")
+        if fontId == -1:
             print("Failed to load font")
         else:
-            font_family = QFontDatabase.applicationFontFamilies(font_id)[0]
-            custom_font = QFont(font_family)
-            custom_font.setPointSize(6)
-            custom_font.setLetterSpacing(QFont.PercentageSpacing, 90)
+            fontFamily = QFontDatabase.applicationFontFamilies(fontId)[0]
+            customFont = QFont(fontFamily)
+            customFont.setPointSize(6)
+            customFont.setLetterSpacing(QFont.PercentageSpacing, 90)
 
         # Timer for blinking animation
-        self.blink_timer = QTimer(self)
-        self.blink_timer.timeout.connect(self.blink)
-        self.blink_timer.start(blink_timer)
+        self.blinkTimer = QTimer(self)
+        self.blinkTimer.timeout.connect(self.blink)
+        self.blinkTimer.start(blinkTimer)
 
         # Timer for blinking animation frames
-        self.blink_frame_timer = QTimer(self)
-        self.blink_frame_timer.timeout.connect(self.blink_frame)
-        self.blink_frame_speed = blink_speed
+        self.blinkFrameTimer = QTimer(self)
+        self.blinkFrameTimer.timeout.connect(self.blinkFrame)
+        self.blinkFrameSpeed = blinkSpeed
 
         # Set up the rest of the window
         self.setFixedSize(400, 450)
@@ -220,182 +220,175 @@ class VirtualAssistant(QMainWindow):
         self.view.setScene(self.scene)
 
         # Initialize the sprite item with the current outfit and expression
-        self.init_sprite_item()
+        self.initSpriteItem()
 
         # Load the config and conversation history
-        self.config_file = 'config.json'
-        self.load_config()
-        self.load_conversation_history()
+        self.configFile = 'config.json'
+        self.loadConfig()
+        self.loadConversationHistory()
 
         # Position the window at the bottom right of the screen
-        screen_geometry = QApplication.desktop().screenGeometry()
-        x = screen_geometry.width() - self.width()
-        y = screen_geometry.height() - self.height()
+        screenGeometry = QApplication.desktop().screenGeometry()
+        x = screenGeometry.width() - self.width()
+        y = screenGeometry.height() - self.height()
         self.move(x, y)
 
         # Load and position the speech bubble sprite
-        speech_bubble_pixmap = QPixmap('sprites/bubble.png')
-        self.speech_bubble_item = QGraphicsPixmapItem(speech_bubble_pixmap)
-        # Top left position, adjust as needed
-        self.speech_bubble_item.setPos(-100, -100)
-        self.scene.addItem(self.speech_bubble_item)
+        speechBubblePixmap = QPixmap('sprites/bubble.png')
+        self.speechBubbleItem = QGraphicsPixmapItem(speechBubblePixmap)
+        self.speechBubbleItem.setPos(-100, -100)
+        self.scene.addItem(self.speechBubbleItem)
 
         # Initialize and position the message QLabel
-        self.message_label = QLabel(self)
-        self.message_label.setFont(custom_font)
+        self.messageLabel = QLabel(self)
+        self.messageLabel.setFont(customFont)
 
         # Adjust these values to move the message label
-        x_position = 10  # Example x coordinate
-        y_position = 10  # Example y coordinate
-        label_width = 100  # Width of the label
-        label_height = 180  # Height of the label
-        self.message_label.setGeometry(
-            x_position, y_position, label_width, label_height)
-        self.message_label.setWordWrap(True)
+        xPosition = 10  # Example x coordinate
+        yPosition = 10  # Example y coordinate
+        labelWidth = 100  # Width of the label
+        labelHeight = 180  # Height of the label
+        self.messageLabel.setGeometry(
+            xPosition, yPosition, labelWidth, labelHeight)
+        self.messageLabel.setWordWrap(True)
 
         # Create a QTimer for hiding the speech bubble
-        self.hide_bubble_timer = QTimer(self)
-        self.hide_bubble_timer.timeout.connect(self.hideSpeechBubble)
+        self.hideBubbleTimer = QTimer(self)
+        self.hideBubbleTimer.timeout.connect(self.hideSpeechBubble)
         # The timer should work only once per activation
-        self.hide_bubble_timer.setSingleShot(True)
+        self.hideBubbleTimer.setSingleShot(True)
 
         # Initially, the speech bubble is hidden
-        self.speech_bubble_item.setVisible(False)
+        self.speechBubbleItem.setVisible(False)
 
         # Add a chat box
-        self.chat_box = QLineEdit(self)
-        self.chat_box.setGeometry(10, 400, 380, 25)
-        self.chat_box.setStyleSheet(
+        self.chatBox = QLineEdit(self)
+        self.chatBox.setGeometry(10, 400, 380, 25)
+        self.chatBox.setStyleSheet(
             "background-color: white; color: black; border: 2px solid black; border-radius: 5px;")
-        self.chat_box.setPlaceholderText("Use the 'gpt:' prefix for ChatGPT.")
-        self.chat_box.setFocus()
-        self.chat_box.returnPressed.connect(self.process_command)
+        self.chatBox.setPlaceholderText("Use the 'gpt:' prefix for ChatGPT.")
+        self.chatBox.setFocus()
+        self.chatBox.returnPressed.connect(self.processCommand)
 
     def closeEvent(self, event):
         # Terminate the TTSWorker process if it's running
-        if hasattr(self, 'tts_worker'):
+        if hasattr(self, 'ttsWorker'):
             try:
-                if self.tts_worker.is_running():
-                    self.tts_worker.terminate()
-                self.tts_worker.process.join()  # Wait for the process to terminate
+                if self.ttsWorker.isRunning():
+                    self.ttsWorker.terminate()
+                self.ttsWorker.process.join()  # Wait for the process to terminate
             except Exception as e:
                 print(f"Error while terminating TTSWorker: {e}")
 
         # Terminate the GPTWorker thread if it's running
-        if hasattr(self, 'gpt_worker') and self.gpt_worker.isRunning():
-            self.gpt_worker.terminate()
-            self.gpt_worker.wait()
+        if hasattr(self, 'gptWorker') and self.gptWorker.isRunning():
+            self.gptWorker.terminate()
+            self.gptWorker.wait()
 
         event.accept()
 
-    def save_conversation_history(self):
-        with open('conversation_history.msgpack', 'wb') as f:
-            msgpack.dump(self.conversation_history, f)
+    def saveConversationHistory(self):
+        with open('conversationHistory.msgpack', 'wb') as f:
+            msgpack.dump(self.conversationHistory, f)
 
-    def load_conversation_history(self):
-        if os.path.exists('conversation_history.msgpack'):
-            with open('conversation_history.msgpack', 'rb') as f:
-                self.conversation_history = msgpack.load(f)
+    def loadConversationHistory(self):
+        if os.path.exists('conversationHistory.msgpack'):
+            with open('conversationHistory.msgpack', 'rb') as f:
+                self.conversationHistory = msgpack.load(f)
 
-    def init_sprite_item(self):
-        initial_pixmap = self.sprites[self.current_outfit][self.current_expression]
-        self.sprite_item = ClickablePixmapItem(initial_pixmap, self)
-        self.scene.addItem(self.sprite_item)
+    def initSpriteItem(self):
+        initialPixmap = self.sprites[self.currentOutfit][self.currentExpression]
+        self.spriteItem = ClickablePixmapItem(initialPixmap, self)
+        self.scene.addItem(self.spriteItem)
 
-    def save_config(self):
+    def saveConfig(self):
         config = {
-            'outfit': self.current_outfit,
-            'prompt_type': self.current_prompt_type
+            'outfit': self.currentOutfit,
+            'promptType': self.currentPromptType
         }
-        with open(self.config_file, 'w') as f:
+        with open(self.configFile, 'w') as f:
             json.dump(config, f, indent=4)
 
-    def load_config(self):
-        if os.path.exists(self.config_file):
-            with open(self.config_file, 'r') as f:
+    def loadConfig(self):
+        if os.path.exists(self.configFile):
+            with open(self.configFile, 'r') as f:
                 config = json.load(f)
-                self.current_outfit = config.get('outfit', 'default')
-                self.current_prompt_type = config.get('prompt_type', 'default')
-                self.update_sprite()  # Update the sprite with the loaded outfit
+                self.currentOutfit = config.get('outfit', 'default')
+                self.currentPromptType = config.get('promptType', 'default')
+                self.updateSprite()  # Update the sprite with the loaded outfit
         else:
-            self.current_outfit = 'default'
-            self.current_prompt_type = 'default'
+            self.currentOutfit = 'default'
+            self.currentPromptType = 'default'
 
-    def cycle_outfit(self):
-        current_index = self.outfits.index(self.current_outfit)
-        new_index = (current_index + 1) % len(self.outfits)
-        self.current_outfit = self.outfits[new_index]
-        self.update_sprite()
-        self.save_config()
+    def cycleOutfit(self):
+        currentIndex = self.outfits.index(self.currentOutfit)
+        newIndex = (currentIndex + 1) % len(self.outfits)
+        self.currentOutfit = self.outfits[newIndex]
+        self.updateSprite()
+        self.saveConfig()
 
-    def reverse_cycle_outfit(self):
-        current_index = self.outfits.index(self.current_outfit)
-        new_index = (current_index - 1) % len(self.outfits)
-        self.current_outfit = self.outfits[new_index]
-        self.update_sprite()
-        self.save_config()
+    def reverseCycleOutfit(self):
+        currentIndex = self.outfits.index(self.currentOutfit)
+        newIndex = (currentIndex - 1) % len(self.outfits)
+        self.currentOutfit = self.outfits[newIndex]
+        self.updateSprite()
+        self.saveConfig()
 
-    def change_outfit(self, new_outfit):
-        if new_outfit in self.outfits:
-            self.current_outfit = new_outfit
-            self.update_sprite()
-            self.save_config()
+    def changeExpression(self, newExpression):
+        if newExpression in self.expressions:
+            self.currentExpression = newExpression
+            self.updateSprite()
 
-    def change_expression(self, new_expression):
-        if new_expression in self.expressions:
-            self.current_expression = new_expression
-            self.update_sprite()
-
-    def update_sprite(self):
-        new_pixmap = self.sprites[self.current_outfit][self.current_expression]
-        self.sprite_item.setPixmap(new_pixmap)
+    def updateSprite(self):
+        newPixmap = self.sprites[self.currentOutfit][self.currentExpression]
+        self.spriteItem.setPixmap(newPixmap)
 
     def blink(self):
         self.isBlinking = True
-        self.blinking_index = 0
-        self.blink_frame_timer.start(self.blink_frame_speed)
+        self.blinkingIndex = 0
+        self.blinkFrameTimer.start(self.blinkFrameSpeed)
 
-    def blink_frame(self, manual_control=False):
-        if self.isBlinking or manual_control:
-            blink_sequence = self.blinking_sprites[self.current_outfit][self.current_expression]
+    def blinkFrame(self, manualControl=False):
+        if self.isBlinking or manualControl:
+            blinkSequence = self.blinkingSprites[self.currentOutfit][self.currentExpression]
 
-            if self.blinking_index < len(blink_sequence):
-                self.sprite_item.setPixmap(blink_sequence[self.blinking_index])
-                self.blinking_index += 1
+            if self.blinkingIndex < len(blinkSequence):
+                self.spriteItem.setPixmap(blinkSequence[self.blinkingIndex])
+                self.blinkingIndex += 1
             else:
-                self.blinking_index = 0
+                self.blinkingIndex = 0
                 self.isBlinking = False
-                self.blink_frame_timer.stop() if not manual_control else None
-                self.sprite_item.setPixmap(
-                    self.sprites[self.current_outfit][self.current_expression])
+                self.blinkFrameTimer.stop() if not manualControl else None
+                self.spriteItem.setPixmap(
+                    self.sprites[self.currentOutfit][self.currentExpression])
 
-    def test_expressions_and_blink(self):
+    def testExpressions(self):
         for expression in self.expressions:
-            self.change_expression(expression)
+            self.changeExpression(expression)
             QApplication.processEvents()
             time.sleep(1)
 
             # Manually trigger and control the blink animation
             self.isBlinking = True
-            for frame_index in range(4):  # Iterate through frames 0 to 4
-                self.blinking_index = frame_index
-                self.blink_frame(manual_control=True)
+            for frameIndex in range(4):  # Iterate through frames 0 to 4
+                self.blinkingIndex = frameIndex
+                self.blinkFrame(manualControl=True)
                 QApplication.processEvents()
-                time.sleep(0.25)  # Adjust timing as needed
+                time.sleep(0.1)  # Adjust timing as needed
 
             # Reset to the normal state
             self.isBlinking = False
-            self.blinking_index = 0
-            self.sprite_item.setPixmap(
-                self.sprites[self.current_outfit][self.current_expression])
+            self.blinkingIndex = 0
+            self.spriteItem.setPixmap(
+                self.sprites[self.currentOutfit][self.currentExpression])
             QApplication.processEvents()
 
     def hideSpeechBubble(self):
-        self.speech_bubble_item.setVisible(False)
-        self.message_label.clear()  # Clear the text from the message label
+        self.speechBubbleItem.setVisible(False)
+        self.messageLabel.clear()  # Clear the text from the message label
 
-    def process_command(self):
-        command = self.chat_box.text().strip().lower()
+    def processCommand(self):
+        command = self.chatBox.text().strip().lower()
 
         # Define a prefix for chatgpt
         prefix = "gpt:"
@@ -407,43 +400,43 @@ class VirtualAssistant(QMainWindow):
             volume.SetMasterVolumeLevelScalar(
                 volume.GetMasterVolumeLevelScalar() + 0.1, None)
             self.current = volume.GetMasterVolumeLevel()
-            self.chat_box.clear()
+            self.chatBox.clear()
             return
         elif command == "volume down":
             volume.SetMasterVolumeLevelScalar(
                 volume.GetMasterVolumeLevelScalar() - 0.1, None)
             self.current = volume.GetMasterVolumeLevel()
-            self.chat_box.clear()
+            self.chatBox.clear()
             return
         elif command == "volume mute" or command == "volume 0":
             volume.SetMasterVolumeLevelScalar(0, None)
             self.current = volume.GetMasterVolumeLevel()
-            self.chat_box.clear()
+            self.chatBox.clear()
             return
         elif command == "volume max" or command == "volume 1":
             volume.SetMasterVolumeLevelScalar(1, None)
             self.current = volume.GetMasterVolumeLevel()
-            self.chat_box.clear()
+            self.chatBox.clear()
             return
         elif command == "volume mid":
             volume.SetMasterVolumeLevelScalar(0.5, None)
             self.current = volume.GetMasterVolumeLevel()
-            self.chat_box.clear()
+            self.chatBox.clear()
             return
         elif command.startswith("volume "):
             try:
                 percent = float(command.split("volume ")[1])
                 if 0 <= percent <= 100:
                     # Convert percentage to a value between 0 and 1
-                    volume_level = percent / 100.0
-                    volume.SetMasterVolumeLevelScalar(volume_level, None)
+                    volumeLevel = percent / 100.0
+                    volume.SetMasterVolumeLevelScalar(volumeLevel, None)
                     self.current = volume.GetMasterVolumeLevel()
-                    self.chat_box.clear()
+                    self.chatBox.clear()
                 else:
-                    self.chat_box.setText(
+                    self.chatBox.setText(
                         "Invalid volume percentage. Please use a value between 0 and 100.")
             except ValueError:
-                self.chat_box.setText(
+                self.chatBox.setText(
                     "Invalid volume percentage. Please use a numeric value.")
             return
         elif command == "hide":
@@ -451,110 +444,110 @@ class VirtualAssistant(QMainWindow):
             self.setWindowFlag(Qt.WindowStaysOnTopHint, False)
             self.setVisible(True)
             self.showMinimized()
-            self.chat_box.clear()
+            self.chatBox.clear()
             return
         elif command == "show":
             self.show()
             self.setWindowFlag(Qt.WindowStaysOnTopHint,
                                True)  # Enable always on top
             self.setVisible(True)
-            self.chat_box.clear()
+            self.chatBox.clear()
             return
         elif command == "pause" or command == "play" or command == "p":
-            simulate_media_play_pause()
-            self.chat_box.clear()
+            simulatePlayPause()
+            self.chatBox.clear()
             return
         elif command.lower().startswith("switch: "):
-            new_prompt_type = command[len("switch: "):].strip()
-            self.current_prompt_type = new_prompt_type
-            self.save_config()
-            self.chat_box.clear()
+            new_promptType = command[len("switch: "):].strip()
+            self.currentPromptType = new_promptType
+            self.saveConfig()
+            self.chatBox.clear()
             return
         elif command == "test":
-            self.test_expressions_and_blink()
-            self.chat_box.clear()
+            self.testExpressions()
+            self.chatBox.clear()
             return
         elif command == "toggle":
-            self.no_tts_mode = not self.no_tts_mode  # Toggle the TTS mode
-            response = "TTS Mode Disabled" if self.no_tts_mode else "TTS Mode Enabled"
+            self.noTtsMode = not self.noTtsMode  # Toggle the TTS mode
+            response = "TTS Mode Disabled" if self.noTtsMode else "TTS Mode Enabled"
             # Or display this message in your application's interface
             print(response)
-            self.chat_box.clear()
+            self.chatBox.clear()
             return
         elif command == "message":
-            default_message = "This is the default message."
-            self.speech_bubble_item.setVisible(True)  # Show the speech bubble
+            defaultMessage = "This is the default message."
+            self.speechBubbleItem.setVisible(True)  # Show the speech bubble
             # Hide after 5000 milliseconds (5 seconds)
-            self.hide_bubble_timer.start(5000)
-            self.message_label.setText(default_message)
+            self.hideBubbleTimer.start(5000)
+            self.messageLabel.setText(defaultMessage)
             print("Default message set")  # Debugging message
-            self.chat_box.clear()
+            self.chatBox.clear()
             return
 
         # Check if the command starts with the prefix
         if not command.lower().startswith(prefix.lower()):
-            self.chat_box.clear()
+            self.chatBox.clear()
             return
 
         # Remove the prefix from the command
         command = command[len(prefix):].strip().lower()
 
         # Add user command to history
-        self.conversation_history.append({"role": "user", "content": command})
+        self.conversationHistory.append({"role": "user", "content": command})
 
         # Save conversation history
-        self.save_conversation_history()
+        self.saveConversationHistory()
 
-        max_history_length = 100
-        if len(self.conversation_history) > max_history_length:
-            self.conversation_history = self.conversation_history[-max_history_length:]
+        maxHistoryLength = 100
+        if len(self.conversationHistory) > maxHistoryLength:
+            self.conversationHistory = self.conversationHistory[-maxHistoryLength:]
 
-        self.gpt_worker = GPTWorker(
-            command, self.conversation_history, prompt_type=self.current_prompt_type)
-        self.gpt_worker.finished.connect(self.handle_gpt_response)
-        self.gpt_worker.start()
+        self.gptWorker = GPTWorker(
+            command, self.conversationHistory, promptType=self.currentPromptType)
+        self.gptWorker.finished.connect(self.handleGptResponse)
+        self.gptWorker.start()
 
-        self.chat_box.clear()
+        self.chatBox.clear()
 
-    def handle_gpt_response(self, gpt_response):
-        self.conversation_history.append(
-            {"role": "assistant", "content": gpt_response})
+    def handleGptResponse(self, gptResponse):
+        self.conversationHistory.append(
+            {"role": "assistant", "content": gptResponse})
 
         # Save conversation history
-        self.save_conversation_history()
+        self.saveConversationHistory()
 
-        if gpt_response.startswith('[') and ']' in gpt_response:
-            end_bracket_index = gpt_response.find(']')
+        if gptResponse.startswith('[') and ']' in gptResponse:
+            endBracketIndex = gptResponse.find(']')
             # Convert expression to lowercase
-            expression = gpt_response[1:end_bracket_index].strip().lower()
-            message = gpt_response[end_bracket_index + 1:].strip()
+            expression = gptResponse[1:endBracketIndex].strip().lower()
+            message = gptResponse[endBracketIndex + 1:].strip()
 
             if expression in self.expressions:
-                self.change_expression(expression)
+                self.changeExpression(expression)
             else:
-                message = gpt_response  # Use the original message if expression is not valid
+                message = gptResponse  # Use the original message if expression is not valid
         else:
-            message = gpt_response  # Use the original message if no expression is found
+            message = gptResponse  # Use the original message if no expression is found
 
         messages = [message]  # Wrap the response in a list
 
-        self.message_label.setText(message)
-        self.speech_bubble_item.setVisible(True)  # Show the speech bubble
+        self.messageLabel.setText(message)
+        self.speechBubbleItem.setVisible(True)  # Show the speech bubble
         # Hide after 5000 milliseconds (5 seconds)
-        self.hide_bubble_timer.start(5000)
+        self.hideBubbleTimer.start(5000)
 
-        if not self.no_tts_mode:  # Only proceed with TTS if the mode is enabled
+        if not self.noTtsMode:  # Only proceed with TTS if the mode is enabled
             messages = [message]  # Wrap the response in a list
-            self.tts_worker = TTSWorker(messages)
-            self.tts_worker.start()
+            self.ttsWorker = TTSWorker(messages)
+            self.ttsWorker.start()
         else:
             print(message)
 
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    blink_speed = 25
-    blink_timer = 4000
-    assistant = VirtualAssistant(blink_speed, blink_timer)
+    blinkSpeed = 25
+    blinkTimer = 4000
+    assistant = VirtualAssistant(blinkSpeed, blinkTimer)
     assistant.show()
     sys.exit(app.exec_())
