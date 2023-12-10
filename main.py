@@ -150,7 +150,6 @@ class VirtualAssistant(QMainWindow):
 
         self.dbConnection = sqlite3.connect('conversationHistory.db')
         self.dbCursor = self.dbConnection.cursor()
-        self.createDatabase()
 
         self.currentPromptType = "default"
         self.currentOutfit = 'default'
@@ -286,31 +285,52 @@ class VirtualAssistant(QMainWindow):
         # Connect the custom signal to the slot
         self.displayDelayedResponse.connect(self.updateDisplayForTTS)
 
-    def createDatabase(self):
-        self.dbCursor.execute('''CREATE TABLE IF NOT EXISTS history
-                                (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                role TEXT,
-                                content TEXT,
-                                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
-        self.dbConnection.commit()
+        self.currentPromptType = self.loadConfig()
+        self.createDatabase(self.currentPromptType)
+        self.loadConversationHistory()
+
+    def createDatabase(self, promptType):
+        tableName = f'history_{promptType}'
+        try:
+            self.dbCursor.execute(f'''CREATE TABLE IF NOT EXISTS {tableName}
+                                    (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                    role TEXT,
+                                    content TEXT,
+                                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+            self.dbConnection.commit()
+        except sqlite3.Error as e:
+            # Debugging message
+            print(f"An error occurred while creating the table: {e}")
 
     def saveConversationHistory(self, entry=None):
+        tableName = f'history_{self.currentPromptType}'
         if entry is not None:
-            # Save only the provided entry
-            self.dbCursor.execute("INSERT INTO history (role, content) VALUES (?, ?)",
+            self.dbCursor.execute(f"INSERT INTO {tableName} (role, content) VALUES (?, ?)",
                                   (entry['role'], entry['content']))
         else:
-            # Save the entire conversation history
             for entry in self.conversationHistory:
-                self.dbCursor.execute("INSERT INTO history (role, content) VALUES (?, ?)",
+                self.dbCursor.execute(f"INSERT INTO {tableName} (role, content) VALUES (?, ?)",
                                       (entry['role'], entry['content']))
         self.dbConnection.commit()
 
     def loadConversationHistory(self):
         self.conversationHistory = []
-        for row in self.dbCursor.execute("SELECT role, content FROM history ORDER BY timestamp"):
-            self.conversationHistory.append(
-                {"role": row[0], "content": row[1]})
+        tableName = f'history_{self.currentPromptType}'
+        try:
+            for row in self.dbCursor.execute(f"SELECT role, content FROM {tableName} ORDER BY timestamp"):
+                self.conversationHistory.append(
+                    {"role": row[0], "content": row[1]})
+        except sqlite3.OperationalError as e:
+            # print(f"No such table: {tableName}. Error: {e}") # Debugging message
+            # Attempt to create the table
+            self.createDatabase(self.currentPromptType)
+
+    def switchPrompt(self, newPromptType):
+        self.currentPromptType = newPromptType
+        # Create table for the new prompt if it doesn't exist
+        self.createDatabase(newPromptType)
+        self.loadConversationHistory()  # Load history from the new table
+        self.saveConfig()
 
     def closeEvent(self, event):
         # Terminate the TTSWorker process if it's running
@@ -350,9 +370,12 @@ class VirtualAssistant(QMainWindow):
                 self.currentOutfit = config.get('outfit', 'default')
                 self.currentPromptType = config.get('promptType', 'default')
                 self.updateSprite()  # Update the sprite with the loaded outfit
+                # Return the prompt type
+                return config.get('promptType', 'default')
         else:
             self.currentOutfit = 'default'
             self.currentPromptType = 'default'
+            return self.currentPromptType
 
     def cycleOutfit(self):
         currentIndex = self.outfits.index(self.currentOutfit)
@@ -503,10 +526,8 @@ class VirtualAssistant(QMainWindow):
             return
         elif command.lower().startswith("switch "):
             newPromptType = command[len("switch "):].strip()
-            self.currentPromptType = newPromptType
-            self.saveConfig()
+            self.switchPrompt(newPromptType)
             self.chatBox.clear()
-            return
         # elif command == "test":
         #     self.testExpressions()
         #     self.chatBox.clear()
@@ -596,8 +617,8 @@ if __name__ == '__main__':
     app = QApplication(sys.argv)
     blinkSpeed = 25
     blinkTimer = 4000
-    delayDuration = 5
-    bubbleTimerDuration = 1000
+    delayDuration = 1
+    bubbleTimerDuration = 10000
     assistant = VirtualAssistant(
         blinkSpeed, blinkTimer, delayDuration, bubbleTimerDuration)
     assistant.show()
