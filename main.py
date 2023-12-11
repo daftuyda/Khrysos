@@ -10,6 +10,7 @@ import keyboard
 import sympy
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
+from pytube import YouTube
 from multiprocessing import Process, Queue
 from elevenlabs import generate, play, Voice, VoiceSettings, set_api_key
 from ctypes import cast, POINTER
@@ -27,13 +28,10 @@ load_dotenv()
 haUrl = os.getenv('haUrl')
 haToken = os.getenv('haToken')
 
-
 clientId = os.getenv('SpotifyClientId')
 secretId = os.getenv('SpotifySecretId')
 redirectUri = os.getenv('SpotifyRedirectUri')
-
 scope = "user-read-private user-read-playback-state user-modify-playback-state"
-
 
 sp = spotipy.Spotify(auth_manager=SpotifyOAuth(client_id=clientId,
                                                client_secret=secretId,
@@ -154,6 +152,20 @@ def calculateExpr(expression):
         # Evaluate the expression using sympy
         result = sympy.sympify(expression)
         return str(result)
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+
+def download_youtube_video(url, path='downloads/'):
+    try:
+        yt = YouTube(url)
+        video = yt.streams.filter(progressive=True, file_extension='mp4').order_by(
+            'resolution').desc().first()
+        if video:
+            video.download(path)
+            return f"Downloaded: {yt.title}"
+        else:
+            return "No suitable video stream found."
     except Exception as e:
         return f"Error: {str(e)}"
 
@@ -629,10 +641,21 @@ class VirtualAssistant(QMainWindow):
         return self.controlHomeAssistant(entityId, action)
 
     def processCommand(self):
-        command = self.chatBox.text().strip().lower()
+        command = self.chatBox.text().strip()
 
         # Define a prefix for chatgpt
         prefix = "gpt"
+
+        if command.startswith("dl"):
+            url = command[len("dl "):].strip()
+            self.speechBubbleItem.setVisible(True)
+            self.hideBubbleTimer.start(self.bubbleTimerDuration)
+            self.messageLabel.setText("Downloading video...")
+            result = download_youtube_video(url)
+            self.messageLabel.setText(result)
+            self.chatBox.clear()
+
+        command = command.lower()
 
         if command == "quit" or command == "close" or command == "exit" or command == "q":
             self.close()
@@ -796,7 +819,8 @@ class VirtualAssistant(QMainWindow):
             except ValueError:
                 self.speechBubbleItem.setVisible(True)
                 self.hideBubbleTimer.start(self.bubbleTimerDuration)
-                self.messageLabel.setText("Invalid time format. Please enter a number or time format (mm:ss).")
+                self.messageLabel.setText(
+                    "Invalid time format. Please enter a number or time format (mm:ss).")
             self.chatBox.clear()
 
         # Check if the command starts with the prefix
