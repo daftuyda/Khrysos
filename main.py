@@ -341,7 +341,7 @@ class VirtualAssistant(QMainWindow):
         self.chatBox.setGeometry(10, 400, 380, 25)
         self.chatBox.setStyleSheet(
             "background-color: white; color: black; border: 2px solid black; border-radius: 5px;")
-        self.chatBox.setPlaceholderText("Use the 'gpt:' prefix for ChatGPT.")
+        self.chatBox.setPlaceholderText("Use the 'gpt' prefix for ChatGPT.")
         self.chatBox.setFocus()
         self.chatBox.returnPressed.connect(self.processCommand)
 
@@ -565,7 +565,7 @@ class VirtualAssistant(QMainWindow):
         command = self.chatBox.text().strip().lower()
 
         # Define a prefix for chatgpt
-        prefix = "gpt:"
+        prefix = "gpt"
 
         if command == "quit" or command == "close" or command == "exit" or command == "q":
             self.close()
@@ -579,16 +579,8 @@ class VirtualAssistant(QMainWindow):
                 volume.GetMasterVolumeLevelScalar() - 0.1, None)
             self.current = volume.GetMasterVolumeLevel()
             self.chatBox.clear()
-        elif command == "volume mute" or command == "volume 0":
-            volume.SetMasterVolumeLevelScalar(0, None)
-            self.current = volume.GetMasterVolumeLevel()
-            self.chatBox.clear()
         elif command == "volume max" or command == "volume 1":
             volume.SetMasterVolumeLevelScalar(1, None)
-            self.current = volume.GetMasterVolumeLevel()
-            self.chatBox.clear()
-        elif command == "volume mid":
-            volume.SetMasterVolumeLevelScalar(0.5, None)
             self.current = volume.GetMasterVolumeLevel()
             self.chatBox.clear()
         elif command.startswith("volume "):
