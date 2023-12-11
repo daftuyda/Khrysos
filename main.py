@@ -17,6 +17,7 @@ from comtypes import CLSCTX_ALL
 from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume, ISimpleAudioVolume
 from dotenv import load_dotenv
 from openai import OpenAI
+from PyQt5.QtMultimedia import QSound
 from PyQt5.QtWidgets import QApplication, QMainWindow, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QLineEdit, QLabel
 from PyQt5.QtGui import QPixmap, QFont, QFontDatabase
 from PyQt5.QtCore import QTimer, Qt, QThread, pyqtSignal
@@ -472,6 +473,18 @@ class VirtualAssistant(QMainWindow):
         self.spriteItem = ClickablePixmapItem(initialPixmap, self)
         self.scene.addItem(self.spriteItem)
 
+    def startTimer(self, seconds):
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.onTimerComplete)
+        self.timer.start(seconds * 1000)  # QTimer takes milliseconds
+
+    def onTimerComplete(self):
+        self.timer.stop()
+        self.speechBubbleItem.setVisible(True)
+        self.hideBubbleTimer.start(self.bubbleTimerDuration)
+        self.messageLabel.setText("Timer completed!")
+        QSound.play("sounds/timer.wav")
+
     def saveConfig(self):
         config = {
             'outfit': self.currentOutfit,
@@ -766,6 +779,24 @@ class VirtualAssistant(QMainWindow):
             self.speechBubbleItem.setVisible(True)
             self.hideBubbleTimer.start(self.bubbleTimerDuration)
             self.messageLabel.setText(result)
+            self.chatBox.clear()
+        elif command.startswith("timer "):
+            try:
+                time_input = command[len("timer "):].strip()
+                if ':' in time_input:
+                    minutes, seconds = map(int, time_input.split(':'))
+                    timeInSeconds = minutes * 60 + seconds
+                else:
+                    timeInSeconds = int(time_input)
+
+                self.startTimer(timeInSeconds)
+                self.speechBubbleItem.setVisible(True)
+                self.hideBubbleTimer.start(self.bubbleTimerDuration)
+                self.messageLabel.setText(f"Timer set for {time_input}.")
+            except ValueError:
+                self.speechBubbleItem.setVisible(True)
+                self.hideBubbleTimer.start(self.bubbleTimerDuration)
+                self.messageLabel.setText("Invalid time format. Please enter a number or time format (mm:ss).")
             self.chatBox.clear()
 
         # Check if the command starts with the prefix
