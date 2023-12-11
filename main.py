@@ -94,20 +94,6 @@ def ttsTask(texts, apiKey, queue):
         queue.put("done")
 
 
-class SpotifyWorker(QThread):
-    responseSignal = pyqtSignal(str)
-
-    def __init__(self, command, song_name=None):
-        QThread.__init__(self)
-        self.command = command
-        self.song_name = song_name
-
-    def run(self):
-        if self.command == "play":
-            response = search_and_play(self.song_name)
-            return response
-
-
 class GPTWorker(QThread):
     finished = pyqtSignal(str)
 
@@ -500,14 +486,6 @@ class VirtualAssistant(QMainWindow):
         )
         return helpMessage
 
-    def processSpotifyCommand(self, command, song_name=None):
-        self.spotifyWorker = SpotifyWorker(command, song_name)
-        self.spotifyWorker.responseSignal.connect(self.handleSpotifyResponse)
-        self.spotifyWorker.start()
-
-    def handleSpotifyResponse(self, response):
-        return response
-
     def controlHomeAssistant(self, entity_id, action):
         headers = {
             "Authorization": f"Bearer {haToken}",
@@ -650,8 +628,10 @@ class VirtualAssistant(QMainWindow):
             return
         elif command.startswith("play "):
             song_name = command[len("play "):].strip()
-            self.processSpotifyCommand("play", song_name)
-            # print("Playing song")  # Debugging message
+            # search_and_play(song_name)
+            self.speechBubbleItem.setVisible(True)
+            self.hideBubbleTimer.start(self.bubbleTimerDuration)
+            self.messageLabel.setText(search_and_play(song_name))
             self.chatBox.clear()
         elif command in self.shortcuts:
             keyboard.send(self.shortcuts[command])
