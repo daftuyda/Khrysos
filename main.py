@@ -658,7 +658,7 @@ class VirtualAssistant(QMainWindow):
 
         if command == "quit" or command == "close" or command == "exit" or command == "q":
             self.close()
-        elif command == "volume up":
+        elif command == "volume up" or command == "vol up" or command == "vol+":
             newVolumeLevel = volume.GetMasterVolumeLevelScalar() + 0.1
             if newVolumeLevel > 1:  # Ensure the volume level does not exceed 100%
                 newVolumeLevel = 1
@@ -666,7 +666,7 @@ class VirtualAssistant(QMainWindow):
             # Convert to percentage and round off
             percentVolume = round(newVolumeLevel * 100)
             self.messageLabel.setText(f"Master volume set to {percentVolume}%")
-        elif command == "volume down":
+        elif command == "volume down" or command == "vol down" or command == "vol-":
             newVolumeLevel = volume.GetMasterVolumeLevelScalar() - 0.1
             if newVolumeLevel < 0:  # Ensure the volume level does not go below 0%
                 newVolumeLevel = 0
@@ -674,34 +674,48 @@ class VirtualAssistant(QMainWindow):
             # Convert to percentage and round off
             percentVolume = round(newVolumeLevel * 100)
             self.messageLabel.setText(f"Master volume set to {percentVolume}%")
-        elif command == "volume max" or command == "volume 1":
-            volume.SetMasterVolumeLevelScalar(1, None)
-            self.current = volume.GetMasterVolumeLevel()
-            self.messageLabel.setText("Master volume set to 100%.")
-        elif command.startswith("volume "):
-            try:
-                percent = float(command.split("volume ")[1])
-                if 0 <= percent <= 100:
-                    # Convert percentage to a value between 0 and 1
-                    volumeLevel = percent / 100.0
-                    volume.SetMasterVolumeLevelScalar(volumeLevel, None)
-                    self.current = volume.GetMasterVolumeLevel()
+        elif command.startswith("volume ") or command.startswith("vol "):
+            volumeCommand = command.split("volume ")[1].lower()
+            if volumeCommand == "max":
+                volumeLevel = 1.0
+                percent = 100
+            else:
+                try:
+                    percent = float(volumeCommand)
+                    if 0 <= percent <= 100:
+                        volumeLevel = percent / 100.0
+                    else:
+                        self.messageLabel.setText(
+                            "Invalid volume percentage. Please use a value between 0 and 100.")
+                        return
+                except ValueError:
                     self.messageLabel.setText(
-                        f"Master volume set to {percent}%.")
-                else:
-                    self.messageLabel.setText(
-                        "Invalid volume percentage. Please use a value between 0 and 100.")
-            except ValueError:
-                self.messageLabel.setText(
-                    "Invalid volume percentage. Please use a numeric value.")
-        elif (" volume ") in command:
+                        "Invalid volume percentage. Please use a numeric value or 'max'.")
+                    return
+            volume.SetMasterVolumeLevelScalar(volumeLevel, None)
+            self.messageLabel.setText(f"Master volume set to {percent}%.")
+        elif (" volume ") in command or (" vol ") in command:
             parts = command.split()
             if len(parts) == 3:
                 processName = parts[0]
-                percent = float(parts[2])
-                if 0 <= percent <= 100:
-                    # Convert percentage to a value between 0 and 1
-                    volumeLevel = percent / 100.0
+                volumeCommand = parts[2]
+                if volumeCommand.lower() == "max":
+                    volumeLevel = 1.0
+                    percent = 100
+                else:
+                    try:
+                        percent = float(volumeCommand)
+                        if 0 <= percent <= 100:
+                            volumeLevel = percent / 100.0
+                        else:
+                            self.messageLabel.setText(
+                                "Invalid volume percentage. Please use a value between 0 and 100.")
+                            return
+                    except ValueError:
+                        self.messageLabel.setText(
+                            "Invalid volume percentage. Please use a numeric value or 'max'.")
+                        return
+
                 setAppVolumeByName(processName, volumeLevel)
                 self.messageLabel.setText(
                     f"{processName} volume set to {percent}%.")
