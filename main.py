@@ -387,7 +387,9 @@ class VirtualAssistant(QMainWindow):
     def saveConfig(self):
         config = {
             'outfit': self.currentOutfit,
-            'promptType': self.currentPromptType
+            'promptType': self.currentPromptType,
+            'shortcuts': self.shortcuts,
+            'lights': self.lights
         }
         with open(self.configFile, 'w') as f:
             json.dump(config, f, indent=4)
