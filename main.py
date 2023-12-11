@@ -5,6 +5,10 @@ import ctypes
 import json
 import threading
 import sqlite3
+import requests
+import keyboard
+import spotipy
+from spotipy.oauth2 import SpotifyOAuth
 from multiprocessing import Process, Queue
 from elevenlabs import generate, stream, Voice, VoiceSettings, set_api_key
 from ctypes import cast, POINTER
@@ -21,11 +25,35 @@ load_dotenv()
 openAiKey = os.getenv('OPENAI_API_KEY')
 client = OpenAI(api_key=openAiKey)
 
+clientId = os.getenv('SpotifyClientId')
+secretId = os.getenv('SpotifySecretId')
+redirectUri = os.getenv('SpotifyRedirectUri')
+haUrl = os.getenv('haUrl')
+haToken = os.getenv('haToken')
+
 devices = AudioUtilities.GetSpeakers()
 interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
 volume = cast(interface, POINTER(IAudioEndpointVolume))
 
 user32 = ctypes.WinDLL('user32', use_last_error=True)
+
+scope = "user-read-private user-read-playback-state user-modify-playback-state"
+
+
+sp = spotipy.Spotify(auth_manager=SpotifyOAuth(client_id=clientId,
+                                               client_secret=secretId,
+                                               redirect_uri=redirectUri,
+                                               scope=scope))
+
+
+def search_and_play(song_name):
+    results = sp.search(q=song_name, limit=1)
+    if results['tracks']['items']:
+        song_uri = results['tracks']['items'][0]['uri']
+        sp.start_playback(uris=[song_uri])
+        return f"Playing: {results['tracks']['items'][0]['name']}"
+    else:
+        return "Song not found."
 
 
 def keybd_event(bVk, bScan, dwFlags, dwExtraInfo):
@@ -64,6 +92,20 @@ def ttsTask(texts, apiKey, queue):
         queue.put(str(e))
     finally:
         queue.put("done")
+
+
+class SpotifyWorker(QThread):
+    responseSignal = pyqtSignal(str)
+
+    def __init__(self, command, song_name=None):
+        QThread.__init__(self)
+        self.command = command
+        self.song_name = song_name
+
+    def run(self):
+        if self.command == "play":
+            response = search_and_play(self.song_name)
+            return response
 
 
 class GPTWorker(QThread):
@@ -253,6 +295,7 @@ class VirtualAssistant(QMainWindow):
         # Initialize and position the message QLabel
         self.messageLabel = QLabel(self)
         self.messageLabel.setFont(customFont)
+        self.messageLabel.setAlignment(Qt.AlignCenter)
 
         # Adjust these values to move the message label
         xPosition = 10
@@ -369,12 +412,15 @@ class VirtualAssistant(QMainWindow):
                 config = json.load(f)
                 self.currentOutfit = config.get('outfit', 'default')
                 self.currentPromptType = config.get('promptType', 'default')
-                self.updateSprite()  # Update the sprite with the loaded outfit
-                # Return the prompt type
+                self.shortcuts = config.get('shortcuts', {})
+                self.lights = config.get('lights', {})
+                self.updateSprite()
                 return config.get('promptType', 'default')
         else:
             self.currentOutfit = 'default'
             self.currentPromptType = 'default'
+            self.shortcuts = {}
+            self.lights = {}
             return self.currentPromptType
 
     def cycleOutfit(self):
@@ -453,6 +499,53 @@ class VirtualAssistant(QMainWindow):
             "- switch [prompt]\n"
         )
         return helpMessage
+
+    def processSpotifyCommand(self, command, song_name=None):
+        self.spotifyWorker = SpotifyWorker(command, song_name)
+        self.spotifyWorker.responseSignal.connect(self.handleSpotifyResponse)
+        self.spotifyWorker.start()
+
+    def handleSpotifyResponse(self, response):
+        return response
+
+    def controlHomeAssistant(self, entity_id, action):
+        headers = {
+            "Authorization": f"Bearer {haToken}",
+            "content-type": "application/json",
+        }
+        data = {"entity_id": entity_id}
+        url = f"{haUrl}/api/services/light/{action}"
+        try:
+            response = requests.post(url, json=data, headers=headers)
+            return response.ok
+        except Exception as e:
+            print(f"Error controlling Home Assistant device: {e}")
+            return False
+
+    def getHomeAssistantState(self, entity_id):
+        headers = {
+            "Authorization": f"Bearer {haToken}",
+            "content-type": "application/json",
+        }
+        url = f"{haUrl}/api/states/{entity_id}"
+        try:
+            response = requests.get(url, headers=headers)
+            if response.ok:
+                return response.json()['state']
+            else:
+                return None
+        except Exception as e:
+            print(f"Error fetching state from Home Assistant: {e}")
+            return None
+
+    def toggleHomeAssistantLight(self, entity_id):
+        current_state = self.getHomeAssistantState(entity_id)
+        if current_state is None:
+            print("Error getting current state")
+            return False
+
+        action = "turn_off" if current_state == "on" else "turn_on"
+        return self.controlHomeAssistant(entity_id, action)
 
     def processCommand(self):
         command = self.chatBox.text().strip().lower()
@@ -535,23 +628,42 @@ class VirtualAssistant(QMainWindow):
         elif command == "toggle":
             self.noTtsMode = not self.noTtsMode  # Toggle the TTS mode
             response = "TTS Mode Disabled" if self.noTtsMode else "TTS Mode Enabled"
-            print(response)
-            self.chatBox.clear()
-            return
-        elif command == "message":
-            defaultMessage = "This is the default message."
             self.speechBubbleItem.setVisible(True)  # Show the speech bubble
             self.hideBubbleTimer.start(self.bubbleTimerDuration)
-            self.messageLabel.setText(defaultMessage)
-            print("Default message set")  # Debugging message
+            self.messageLabel.setText(response)
             self.chatBox.clear()
             return
+        # elif command == "message":
+        #     defaultMessage = "This is the default message."
+        #     self.speechBubbleItem.setVisible(True)  # Show the speech bubble
+        #     self.hideBubbleTimer.start(self.bubbleTimerDuration)
+        #     self.messageLabel.setText(defaultMessage)
+        #     print("Default message set")  # Debugging message
+        #     self.chatBox.clear()
+        #     return
         elif command == "help":
             helpMessage = self.getHelpMessage()
             self.speechBubbleItem.setVisible(True)
             self.hideBubbleTimer.start(self.bubbleTimerDuration)
             self.messageLabel.setText(helpMessage)
             self.chatBox.clear()
+            return
+        elif command.startswith("play "):
+            song_name = command[len("play "):].strip()
+            self.processSpotifyCommand("play", song_name)
+            # print("Playing song")  # Debugging message
+            self.chatBox.clear()
+        elif command in self.shortcuts:
+            keyboard.send(self.shortcuts[command])
+            self.chatBox.clear()
+            return
+        elif command.startswith("toggle"):
+            light_name = command.replace("toggle", "").strip()
+            if light_name in self.lights:
+                self.toggleHomeAssistantLight(self.lights[light_name])
+                self.chatBox.clear()
+            else:
+                print(f"Light '{light_name}' not found in configuration.")
             return
 
         # Check if the command starts with the prefix
