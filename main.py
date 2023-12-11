@@ -7,6 +7,7 @@ import threading
 import sqlite3
 import requests
 import keyboard
+import sympy
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from multiprocessing import Process, Queue
@@ -145,6 +146,15 @@ def listAudioSessions():
         else:
             pass
     return sessionInfo
+
+
+def calculateExpr(expression):
+    try:
+        # Evaluate the expression using sympy
+        result = sympy.sympify(expression)
+        return str(result)
+    except Exception as e:
+        return f"Error: {str(e)}"
 
 
 def ttsTask(texts, apiKey, queue):
@@ -749,6 +759,13 @@ class VirtualAssistant(QMainWindow):
             self.chatBox.clear()
         elif command == "back" or command == "prev" or command == "b":
             sp.previous_track()
+            self.chatBox.clear()
+        elif command.startswith("calc "):
+            expression = command[len("calc "):].strip()
+            result = calculateExpr(expression)
+            self.speechBubbleItem.setVisible(True)
+            self.hideBubbleTimer.start(self.bubbleTimerDuration)
+            self.messageLabel.setText(result)
             self.chatBox.clear()
 
         # Check if the command starts with the prefix
