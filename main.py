@@ -653,26 +653,31 @@ class VirtualAssistant(QMainWindow):
             self.messageLabel.setText("Downloading video...")
             result = download_youtube_video(url)
             self.messageLabel.setText(result)
-            self.chatBox.clear()
 
         command = command.lower()
 
         if command == "quit" or command == "close" or command == "exit" or command == "q":
             self.close()
         elif command == "volume up":
-            volume.SetMasterVolumeLevelScalar(
-                volume.GetMasterVolumeLevelScalar() + 0.1, None)
-            self.current = volume.GetMasterVolumeLevel()
-            self.chatBox.clear()
+            newVolumeLevel = volume.GetMasterVolumeLevelScalar() + 0.1
+            if newVolumeLevel > 1:  # Ensure the volume level does not exceed 100%
+                newVolumeLevel = 1
+            volume.SetMasterVolumeLevelScalar(newVolumeLevel, None)
+            # Convert to percentage and round off
+            percentVolume = round(newVolumeLevel * 100)
+            self.messageLabel.setText(f"Master volume set to {percentVolume}%")
         elif command == "volume down":
-            volume.SetMasterVolumeLevelScalar(
-                volume.GetMasterVolumeLevelScalar() - 0.1, None)
-            self.current = volume.GetMasterVolumeLevel()
-            self.chatBox.clear()
+            newVolumeLevel = volume.GetMasterVolumeLevelScalar() - 0.1
+            if newVolumeLevel < 0:  # Ensure the volume level does not go below 0%
+                newVolumeLevel = 0
+            volume.SetMasterVolumeLevelScalar(newVolumeLevel, None)
+            # Convert to percentage and round off
+            percentVolume = round(newVolumeLevel * 100)
+            self.messageLabel.setText(f"Master volume set to {percentVolume}%")
         elif command == "volume max" or command == "volume 1":
             volume.SetMasterVolumeLevelScalar(1, None)
             self.current = volume.GetMasterVolumeLevel()
-            self.chatBox.clear()
+            self.messageLabel.setText("Master volume set to 100%.")
         elif command.startswith("volume "):
             try:
                 percent = float(command.split("volume ")[1])
@@ -681,19 +686,14 @@ class VirtualAssistant(QMainWindow):
                     volumeLevel = percent / 100.0
                     volume.SetMasterVolumeLevelScalar(volumeLevel, None)
                     self.current = volume.GetMasterVolumeLevel()
-                    self.chatBox.clear()
+                    self.messageLabel.setText(
+                        f"Master volume set to {percent}%.")
                 else:
-                    self.speechBubbleItem.setVisible(True)
-                    self.hideBubbleTimer.start(self.bubbleTimerDuration)
                     self.messageLabel.setText(
                         "Invalid volume percentage. Please use a value between 0 and 100.")
-                    self.chatBox.clear()
             except ValueError:
-                self.speechBubbleItem.setVisible(True)
-                self.hideBubbleTimer.start(self.bubbleTimerDuration)
                 self.messageLabel.setText(
                     "Invalid volume percentage. Please use a numeric value.")
-                self.chatBox.clear()
         elif (" volume ") in command:
             parts = command.split()
             if len(parts) == 3:
@@ -703,106 +703,73 @@ class VirtualAssistant(QMainWindow):
                     # Convert percentage to a value between 0 and 1
                     volumeLevel = percent / 100.0
                 setAppVolumeByName(processName, volumeLevel)
-                self.chatBox.clear()
+                self.messageLabel.setText(
+                    f"{processName} volume set to {percent}%.")
             else:
-                self.speechBubbleItem.setVisible(True)
-                self.hideBubbleTimer.start(self.bubbleTimerDuration)
                 self.messageLabel.setText(
                     "Invalid command format. Use: [App name] volume [Level]")
-                self.chatBox.clear()
         elif command == "app list":
-            self.speechBubbleItem.setVisible(True)
-            self.hideBubbleTimer.start(self.bubbleTimerDuration)
             self.messageLabel.setText(listAudioSessions())
-            self.chatBox.clear()
         elif command == "hide":
             # Disable always on top
             self.setWindowFlag(Qt.WindowStaysOnTopHint, False)
             self.setVisible(True)
+            self.messageLabel.setText("I'm hiding!")
             self.showMinimized()
-            self.chatBox.clear()
         elif command == "show":
             # Enable always on top
             self.show()
             self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
             self.setVisible(True)
-            self.chatBox.clear()
+            self.messageLabel.setText("I'm back!")
         elif command == "pause" or command == "play" or command == "p":
             simulatePlayPause()
-            self.chatBox.clear()
+            self.messageLabel.setText("Toggled play/pause.")
         elif command.lower().startswith("switch "):
             newPromptType = command[len("switch "):].strip()
             self.switchPrompt(newPromptType)
-            self.chatBox.clear()
+            self.messageLabel.setText(f"Switched to prompt: {newPromptType}")
         # elif command == "test":
         #     self.testExpressions()
-        #     self.chatBox.clear()
         elif command == "toggle":
             self.noTtsMode = not self.noTtsMode  # Toggle the TTS mode
             response = "TTS Mode Disabled" if self.noTtsMode else "TTS Mode Enabled"
-            self.speechBubbleItem.setVisible(True)  # Show the speech bubble
-            self.hideBubbleTimer.start(self.bubbleTimerDuration)
             self.messageLabel.setText(response)
-            self.chatBox.clear()
-        # elif command == "message":
-        #     defaultMessage = "This is the default message."
-        #     self.speechBubbleItem.setVisible(True)  # Show the speech bubble
-        #     self.hideBubbleTimer.start(self.bubbleTimerDuration)
-        #     self.messageLabel.setText(defaultMessage)
-        #     print("Default message set")  # Debugging message
-        #     self.chatBox.clear()
         elif command == "help":
             helpMessage = self.getHelpMessage()
-            self.speechBubbleItem.setVisible(True)
-            self.hideBubbleTimer.start(self.bubbleTimerDuration)
             self.messageLabel.setText(helpMessage)
-            self.chatBox.clear()
         elif command.startswith("play "):
             songName = command[len("play "):].strip()
-            self.speechBubbleItem.setVisible(True)
-            self.hideBubbleTimer.start(self.bubbleTimerDuration)
             self.messageLabel.setText(searchAndPlay(songName))
-            self.chatBox.clear()
         elif command in self.shortcuts:
             keyboard.send(self.shortcuts[command])
-            self.chatBox.clear()
+            self.messageLabel.setText(f"Sent shortcut: {command}")
         elif command.startswith("toggle"):
             lightName = command.replace("toggle", "").strip()
             if lightName in self.lights:
                 self.toggleHomeAssistantLight(self.lights[lightName])
-                self.chatBox.clear()
+                self.messageLabel.setText(f"Toggled light '{lightName}'.")
             else:
-                print(f"Light '{lightName}' not found in configuration.")
+                self.messageLabel.setText(
+                    f"Light '{lightName}' not found in configuration.")
         elif command.startswith("queue "):
             songName = command[len("queue "):].strip()
-            self.speechBubbleItem.setVisible(True)
-            self.hideBubbleTimer.start(self.bubbleTimerDuration)
             self.messageLabel.setText(queueSong(songName))
-            self.chatBox.clear()
         elif command.startswith("playlist -l"):
-            self.speechBubbleItem.setVisible(True)
-            self.hideBubbleTimer.start(self.bubbleTimerDuration)
             self.messageLabel.setText(getPlaylists())
-            self.chatBox.clear()
         elif command.startswith("playlist "):
             playlistId = command[len("playlist "):].strip()
-            self.speechBubbleItem.setVisible(True)
-            self.hideBubbleTimer.start(self.bubbleTimerDuration)
             self.messageLabel.setText(playPlaylist(playlistId))
-            self.chatBox.clear()
         elif command == "skip" or command == "next" or command == "n":
             sp.next_track()
-            self.chatBox.clear()
+            self.messageLabel.setText("Skipped to next track.")
         elif command == "back" or command == "prev" or command == "b":
             sp.previous_track()
-            self.chatBox.clear()
+            self.messageLabel.setText("Skipped to previous track.")
         elif command.startswith("calc "):
             expression = command[len("calc "):].strip()
             result = calculateExpr(expression)
-            self.speechBubbleItem.setVisible(True)
-            self.hideBubbleTimer.start(self.bubbleTimerDuration)
             self.messageLabel.setText(result)
-            self.chatBox.clear()
         elif command.startswith("timer "):
             try:
                 time_input = command[len("timer "):].strip()
@@ -813,15 +780,14 @@ class VirtualAssistant(QMainWindow):
                     timeInSeconds = int(time_input)
 
                 self.startTimer(timeInSeconds)
-                self.speechBubbleItem.setVisible(True)
-                self.hideBubbleTimer.start(self.bubbleTimerDuration)
                 self.messageLabel.setText(f"Timer set for {time_input}.")
             except ValueError:
-                self.speechBubbleItem.setVisible(True)
-                self.hideBubbleTimer.start(self.bubbleTimerDuration)
                 self.messageLabel.setText(
                     "Invalid time format. Please enter a number or time format (mm:ss).")
-            self.chatBox.clear()
+
+        self.speechBubbleItem.setVisible(True)
+        self.hideBubbleTimer.start(self.bubbleTimerDuration)
+        self.chatBox.clear()
 
         # Check if the command starts with the prefix
         if not command.lower().startswith(prefix.lower()):
@@ -886,8 +852,8 @@ if __name__ == '__main__':
     app = QApplication(sys.argv)
     blinkSpeed = 25
     blinkTimer = 4000
-    delayDuration = 1
-    bubbleTimerDuration = 10000
+    delayDuration = 0
+    bubbleTimerDuration = 4000
     assistant = VirtualAssistant(
         blinkSpeed, blinkTimer, delayDuration, bubbleTimerDuration)
     assistant.show()
