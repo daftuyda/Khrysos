@@ -10,10 +10,10 @@ import keyboard
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from multiprocessing import Process, Queue
-from elevenlabs import generate, stream, Voice, VoiceSettings, set_api_key
+from elevenlabs import generate, play, Voice, VoiceSettings, set_api_key
 from ctypes import cast, POINTER
 from comtypes import CLSCTX_ALL
-from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume, ISimpleAudioVolume
 from dotenv import load_dotenv
 from openai import OpenAI
 from PyQt5.QtWidgets import QApplication, QMainWindow, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QLineEdit, QLabel
@@ -22,20 +22,13 @@ from PyQt5.QtCore import QTimer, Qt, QThread, pyqtSignal
 
 load_dotenv()
 
-openAiKey = os.getenv('OPENAI_API_KEY')
-client = OpenAI(api_key=openAiKey)
+haUrl = os.getenv('haUrl')
+haToken = os.getenv('haToken')
+
 
 clientId = os.getenv('SpotifyClientId')
 secretId = os.getenv('SpotifySecretId')
 redirectUri = os.getenv('SpotifyRedirectUri')
-haUrl = os.getenv('haUrl')
-haToken = os.getenv('haToken')
-
-devices = AudioUtilities.GetSpeakers()
-interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-volume = cast(interface, POINTER(IAudioEndpointVolume))
-
-user32 = ctypes.WinDLL('user32', use_last_error=True)
 
 scope = "user-read-private user-read-playback-state user-modify-playback-state"
 
@@ -90,20 +83,68 @@ def queueSong(songName):
         return "Song not found."
 
 
-def keybd_event(bVk, bScan, dwFlags, dwExtraInfo):
-    user32.keybd_event(bVk, bScan, dwFlags, dwExtraInfo)
-
+devices = AudioUtilities.GetSpeakers()
+interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+volume = cast(interface, POINTER(IAudioEndpointVolume))
 
 # Constants for the Play/Pause key
 VK_MEDIA_PLAY_PAUSE = 0xB3
 KEYEVENTF_EXTENDEDKEY = 0x1
 KEYEVENTF_KEYUP = 0x2
 
+user32 = ctypes.WinDLL('user32', use_last_error=True)
+
+
+def keybd_event(bVk, bScan, dwFlags, dwExtraInfo):
+    user32.keybd_event(bVk, bScan, dwFlags, dwExtraInfo)
+
 
 def simulatePlayPause():
     keybd_event(VK_MEDIA_PLAY_PAUSE, 0, KEYEVENTF_EXTENDEDKEY, 0)
     keybd_event(VK_MEDIA_PLAY_PAUSE, 0,
                 KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0)
+
+
+def getAppIdByName(processName):
+    sessions = AudioUtilities.GetAllSessions()
+    for session in sessions:
+        if session.Process:
+            # Compare without '.exe' and case-insensitive
+            sessionProcessName = session.Process.name().lower()
+            if processName.lower() in sessionProcessName:
+                return session.ProcessId
+    return None
+
+
+def setAppVolumeByName(processName, level):
+    processId = getAppIdByName(processName)
+    if processId is not None:
+        setAppVolume(processId, level)
+    else:
+        print(f"No process found with the name '{processName}'")
+
+
+def setAppVolume(processId, level):
+    sessions = AudioUtilities.GetAllSessions()
+    for session in sessions:
+        if session.Process and session.ProcessId == processId:
+            volume = session._ctl.QueryInterface(ISimpleAudioVolume)
+            volume.SetMasterVolume(level, None)
+
+
+def listAudioSessions():
+    sessions = AudioUtilities.GetAllSessions()
+    sessionInfo = ""
+    for session in sessions:
+        if session.Process:
+            processName = session.Process.name()
+            # Remove '.exe' from the process name if present
+            if processName.lower().endswith(".exe"):
+                processName = processName[:-4]
+            sessionInfo += f"{processName}\n"
+        else:
+            pass
+    return sessionInfo
 
 
 def ttsTask(texts, apiKey, queue):
@@ -115,17 +156,20 @@ def ttsTask(texts, apiKey, queue):
                 voice=Voice(
                     voice_id='EqudVpb9UKv174PwNcST',
                     settings=VoiceSettings(
-                        stability=0.35, similarity_boost=0.4, style=0.0, use_speaker_boost=True)
+                        stability=0.3, similarity_boost=0.4, style=0.0, use_speaker_boost=True)
                 ),
-                model="eleven_turbo_v2",
-                stream=True
+                model="eleven_turbo_v2"
             )
-            stream(audio)
+            play(audio)
 
     except Exception as e:
         queue.put(str(e))
     finally:
         queue.put("done")
+
+
+openAiKey = os.getenv('OPENAI_API_KEY')
+client = OpenAI(api_key=openAiKey)
 
 
 class GPTWorker(QThread):
@@ -522,12 +566,12 @@ class VirtualAssistant(QMainWindow):
         )
         return helpMessage
 
-    def controlHomeAssistant(self, entity_id, action):
+    def controlHomeAssistant(self, entityId, action):
         headers = {
             "Authorization": f"Bearer {haToken}",
             "content-type": "application/json",
         }
-        data = {"entity_id": entity_id}
+        data = {"entity_id": entityId}
         url = f"{haUrl}/api/services/light/{action}"
         try:
             response = requests.post(url, json=data, headers=headers)
@@ -536,12 +580,12 @@ class VirtualAssistant(QMainWindow):
             print(f"Error controlling Home Assistant device: {e}")
             return False
 
-    def getHomeAssistantState(self, entity_id):
+    def getHomeAssistantState(self, entityId):
         headers = {
             "Authorization": f"Bearer {haToken}",
             "content-type": "application/json",
         }
-        url = f"{haUrl}/api/states/{entity_id}"
+        url = f"{haUrl}/api/states/{entityId}"
         try:
             response = requests.get(url, headers=headers)
             if response.ok:
@@ -552,14 +596,14 @@ class VirtualAssistant(QMainWindow):
             print(f"Error fetching state from Home Assistant: {e}")
             return None
 
-    def toggleHomeAssistantLight(self, entity_id):
-        current_state = self.getHomeAssistantState(entity_id)
-        if current_state is None:
+    def toggleHomeAssistantLight(self, entityId):
+        currentState = self.getHomeAssistantState(entityId)
+        if currentState is None:
             print("Error getting current state")
             return False
 
-        action = "turn_off" if current_state == "on" else "turn_on"
-        return self.controlHomeAssistant(entity_id, action)
+        action = "turn_off" if currentState == "on" else "turn_on"
+        return self.controlHomeAssistant(entityId, action)
 
     def processCommand(self):
         command = self.chatBox.text().strip().lower()
@@ -593,11 +637,38 @@ class VirtualAssistant(QMainWindow):
                     self.current = volume.GetMasterVolumeLevel()
                     self.chatBox.clear()
                 else:
-                    self.chatBox.setText(
+                    self.speechBubbleItem.setVisible(True)
+                    self.hideBubbleTimer.start(self.bubbleTimerDuration)
+                    self.messageLabel.setText(
                         "Invalid volume percentage. Please use a value between 0 and 100.")
+                    self.chatBox.clear()
             except ValueError:
-                self.chatBox.setText(
+                self.speechBubbleItem.setVisible(True)
+                self.hideBubbleTimer.start(self.bubbleTimerDuration)
+                self.messageLabel.setText(
                     "Invalid volume percentage. Please use a numeric value.")
+                self.chatBox.clear()
+        elif (" volume ") in command:
+            parts = command.split()
+            if len(parts) == 3:
+                processName = parts[0]
+                percent = float(parts[2])
+                if 0 <= percent <= 100:
+                    # Convert percentage to a value between 0 and 1
+                    volumeLevel = percent / 100.0
+                setAppVolumeByName(processName, volumeLevel)
+                self.chatBox.clear()
+            else:
+                self.speechBubbleItem.setVisible(True)
+                self.hideBubbleTimer.start(self.bubbleTimerDuration)
+                self.messageLabel.setText(
+                    "Invalid command format. Use: [App name] volume [Level]")
+                self.chatBox.clear()
+        elif command == "app list":
+            self.speechBubbleItem.setVisible(True)
+            self.hideBubbleTimer.start(self.bubbleTimerDuration)
+            self.messageLabel.setText(listAudioSessions())
+            self.chatBox.clear()
         elif command == "hide":
             # Disable always on top
             self.setWindowFlag(Qt.WindowStaysOnTopHint, False)
@@ -605,9 +676,9 @@ class VirtualAssistant(QMainWindow):
             self.showMinimized()
             self.chatBox.clear()
         elif command == "show":
+            # Enable always on top
             self.show()
-            self.setWindowFlag(Qt.WindowStaysOnTopHint,
-                               True)  # Enable always on top
+            self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
             self.setVisible(True)
             self.chatBox.clear()
         elif command == "pause" or command == "play" or command == "p":
@@ -650,12 +721,12 @@ class VirtualAssistant(QMainWindow):
             keyboard.send(self.shortcuts[command])
             self.chatBox.clear()
         elif command.startswith("toggle"):
-            light_name = command.replace("toggle", "").strip()
-            if light_name in self.lights:
-                self.toggleHomeAssistantLight(self.lights[light_name])
+            lightName = command.replace("toggle", "").strip()
+            if lightName in self.lights:
+                self.toggleHomeAssistantLight(self.lights[lightName])
                 self.chatBox.clear()
             else:
-                print(f"Light '{light_name}' not found in configuration.")
+                print(f"Light '{lightName}' not found in configuration.")
         elif command.startswith("queue "):
             songName = command[len("queue "):].strip()
             self.speechBubbleItem.setVisible(True)
