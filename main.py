@@ -46,12 +46,46 @@ sp = spotipy.Spotify(auth_manager=SpotifyOAuth(client_id=clientId,
                                                scope=scope))
 
 
-def search_and_play(song_name):
-    results = sp.search(q=song_name, limit=1)
+def searchAndPlay(songName):
+    results = sp.search(q=songName, limit=1)
     if results['tracks']['items']:
         song_uri = results['tracks']['items'][0]['uri']
         sp.start_playback(uris=[song_uri])
         return f"Playing: {results['tracks']['items'][0]['name']}"
+    else:
+        return "Song not found."
+
+
+def getPlaylists():
+    playlists = sp.current_user_playlists(limit=10)
+    playlist_info = ""
+    for playlist in playlists['items']:
+        playlist_info += f"{playlist['name']}\n"
+    return playlist_info
+
+
+def getPlaylistId(sp, playlistName):
+    playlists = sp.current_user_playlists()
+    for playlist in playlists['items']:
+        if playlist['name'].lower() == playlistName.lower():
+            return playlist['id']
+    return None
+
+
+def playPlaylist(playlistName):
+    playlistId = getPlaylistId(sp, playlistName)
+    if playlistId:
+        sp.start_playback(context_uri=f'spotify:playlist:{playlistId}')
+    else:
+        print("Playlist not found.")
+
+
+def queueSong(songName):
+    results = sp.search(q=songName, limit=1)
+    if results['tracks']['items']:
+        song_uri = results['tracks']['items'][0]['uri']
+        sp.add_to_queue(song_uri)
+        return f"Queued: {results['tracks']['items'][0]['name']}"
     else:
         return "Song not found."
 
@@ -535,34 +569,28 @@ class VirtualAssistant(QMainWindow):
 
         if command == "quit" or command == "close" or command == "exit" or command == "q":
             self.close()
-            return
         elif command == "volume up":
             volume.SetMasterVolumeLevelScalar(
                 volume.GetMasterVolumeLevelScalar() + 0.1, None)
             self.current = volume.GetMasterVolumeLevel()
             self.chatBox.clear()
-            return
         elif command == "volume down":
             volume.SetMasterVolumeLevelScalar(
                 volume.GetMasterVolumeLevelScalar() - 0.1, None)
             self.current = volume.GetMasterVolumeLevel()
             self.chatBox.clear()
-            return
         elif command == "volume mute" or command == "volume 0":
             volume.SetMasterVolumeLevelScalar(0, None)
             self.current = volume.GetMasterVolumeLevel()
             self.chatBox.clear()
-            return
         elif command == "volume max" or command == "volume 1":
             volume.SetMasterVolumeLevelScalar(1, None)
             self.current = volume.GetMasterVolumeLevel()
             self.chatBox.clear()
-            return
         elif command == "volume mid":
             volume.SetMasterVolumeLevelScalar(0.5, None)
             self.current = volume.GetMasterVolumeLevel()
             self.chatBox.clear()
-            return
         elif command.startswith("volume "):
             try:
                 percent = float(command.split("volume ")[1])
@@ -578,25 +606,21 @@ class VirtualAssistant(QMainWindow):
             except ValueError:
                 self.chatBox.setText(
                     "Invalid volume percentage. Please use a numeric value.")
-            return
         elif command == "hide":
             # Disable always on top
             self.setWindowFlag(Qt.WindowStaysOnTopHint, False)
             self.setVisible(True)
             self.showMinimized()
             self.chatBox.clear()
-            return
         elif command == "show":
             self.show()
             self.setWindowFlag(Qt.WindowStaysOnTopHint,
                                True)  # Enable always on top
             self.setVisible(True)
             self.chatBox.clear()
-            return
         elif command == "pause" or command == "play" or command == "p":
             simulatePlayPause()
             self.chatBox.clear()
-            return
         elif command.lower().startswith("switch "):
             newPromptType = command[len("switch "):].strip()
             self.switchPrompt(newPromptType)
@@ -604,7 +628,6 @@ class VirtualAssistant(QMainWindow):
         # elif command == "test":
         #     self.testExpressions()
         #     self.chatBox.clear()
-        #     return
         elif command == "toggle":
             self.noTtsMode = not self.noTtsMode  # Toggle the TTS mode
             response = "TTS Mode Disabled" if self.noTtsMode else "TTS Mode Enabled"
@@ -612,7 +635,6 @@ class VirtualAssistant(QMainWindow):
             self.hideBubbleTimer.start(self.bubbleTimerDuration)
             self.messageLabel.setText(response)
             self.chatBox.clear()
-            return
         # elif command == "message":
         #     defaultMessage = "This is the default message."
         #     self.speechBubbleItem.setVisible(True)  # Show the speech bubble
@@ -620,25 +642,21 @@ class VirtualAssistant(QMainWindow):
         #     self.messageLabel.setText(defaultMessage)
         #     print("Default message set")  # Debugging message
         #     self.chatBox.clear()
-        #     return
         elif command == "help":
             helpMessage = self.getHelpMessage()
             self.speechBubbleItem.setVisible(True)
             self.hideBubbleTimer.start(self.bubbleTimerDuration)
             self.messageLabel.setText(helpMessage)
             self.chatBox.clear()
-            return
         elif command.startswith("play "):
-            song_name = command[len("play "):].strip()
-            # search_and_play(song_name)
+            songName = command[len("play "):].strip()
             self.speechBubbleItem.setVisible(True)
             self.hideBubbleTimer.start(self.bubbleTimerDuration)
-            self.messageLabel.setText(search_and_play(song_name))
+            self.messageLabel.setText(searchAndPlay(songName))
             self.chatBox.clear()
         elif command in self.shortcuts:
             keyboard.send(self.shortcuts[command])
             self.chatBox.clear()
-            return
         elif command.startswith("toggle"):
             light_name = command.replace("toggle", "").strip()
             if light_name in self.lights:
@@ -646,7 +664,29 @@ class VirtualAssistant(QMainWindow):
                 self.chatBox.clear()
             else:
                 print(f"Light '{light_name}' not found in configuration.")
-            return
+        elif command.startswith("queue "):
+            songName = command[len("queue "):].strip()
+            self.speechBubbleItem.setVisible(True)
+            self.hideBubbleTimer.start(self.bubbleTimerDuration)
+            self.messageLabel.setText(queueSong(songName))
+            self.chatBox.clear()
+        elif command.startswith("playlist -l"):
+            self.speechBubbleItem.setVisible(True)
+            self.hideBubbleTimer.start(self.bubbleTimerDuration)
+            self.messageLabel.setText(getPlaylists())
+            self.chatBox.clear()
+        elif command.startswith("playlist "):
+            playlistId = command[len("playlist "):].strip()
+            self.speechBubbleItem.setVisible(True)
+            self.hideBubbleTimer.start(self.bubbleTimerDuration)
+            self.messageLabel.setText(playPlaylist(playlistId))
+            self.chatBox.clear()
+        elif command == "skip" or command == "next" or command == "n":
+            sp.next_track()
+            self.chatBox.clear()
+        elif command == "back" or command == "prev" or command == "b":
+            sp.previous_track()
+            self.chatBox.clear()
 
         # Check if the command starts with the prefix
         if not command.lower().startswith(prefix.lower()):
