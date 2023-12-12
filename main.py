@@ -3,7 +3,6 @@ import os
 import time
 import ctypes
 import json
-import threading
 import sqlite3
 import requests
 import keyboard
@@ -25,6 +24,8 @@ from PyQt5.QtGui import QPixmap, QFont, QFontDatabase
 from PyQt5.QtCore import QTimer, Qt, QThread, pyqtSignal
 
 load_dotenv()
+
+openWeatherKey = os.getenv('openWeatherApi')
 
 haUrl = os.getenv('haUrl')
 haToken = os.getenv('haToken')
@@ -157,7 +158,7 @@ def calculateExpr(expression):
         return f"Error: {str(e)}"
 
 
-def download_youtube_video(url, path='downloads/'):
+def downloadYt(url, path='downloads/'):
     try:
         yt = YouTube(url)
         video = yt.streams.filter(progressive=True, file_extension='mp4').order_by(
@@ -169,6 +170,13 @@ def download_youtube_video(url, path='downloads/'):
             return "No suitable video stream found."
     except Exception as e:
         return f"Error: {str(e)}"
+
+
+def get_weather(cityName, api_key):
+    base_url = "http://api.openweathermap.org/data/2.5/weather?"
+    complete_url = f"{base_url}appid={api_key}&q={cityName}"
+    response = requests.get(complete_url)
+    return response.json()
 
 
 def ttsTask(texts, apiKey, queue):
@@ -536,7 +544,7 @@ class VirtualAssistant(QMainWindow):
 
         self.clickableBox.raise_()  # Bring the box to the front
         self.clickableBox.setFocus()  # Set focus to the box
-        self.clickableBox.move(350, 380) # Hard code position cus I suck
+        self.clickableBox.move(350, 380)  # Hard code position cus I suck
         self.clickableBox.show()
 
     def showComponents(self):
@@ -728,6 +736,26 @@ class VirtualAssistant(QMainWindow):
         action = "turn_off" if currentState == "on" else "turn_on"
         return self.controlHomeAssistant(entityId, action)
 
+    def formatWeatherData(self, weatherData):
+        try:
+            city = weatherData['name']
+            weatherCondition = weatherData['weather'][0]['description']
+            temperature = weatherData['main']['temp']
+            humidity = weatherData['main']['humidity']
+
+            # Converting temperature from Kelvin to Celsius
+            tempCelsius = temperature - 273.15
+
+            # Formatting the message
+            weatherMessage = (f"Weather in {city}:\n"
+                            f"Condition: {weatherCondition.title()}\n"
+                            f"Temperature: {tempCelsius:.2f}°C\n"
+                            f"Humidity: {humidity}%")
+
+            return weatherMessage
+        except KeyError:
+            return "Error: Could not parse weather data."
+
     def processRecognizedText(self, text):
         # Process the recognized text here
         self.gptWorker = GPTWorker(
@@ -746,7 +774,7 @@ class VirtualAssistant(QMainWindow):
             self.speechBubbleItem.setVisible(True)
             self.hideBubbleTimer.start(self.bubbleTimerDuration)
             self.messageLabel.setText("Downloading video...")
-            result = download_youtube_video(url)
+            result = downloadYt(url)
             self.messageLabel.setText(result)
 
         command = command.lower()
@@ -890,18 +918,24 @@ class VirtualAssistant(QMainWindow):
             self.showBubble()
         elif command.startswith("timer "):
             try:
-                time_input = command[len("timer "):].strip()
-                if ':' in time_input:
-                    minutes, seconds = map(int, time_input.split(':'))
+                timeInput = command[len("timer "):].strip()
+                if ':' in timeInput:
+                    minutes, seconds = map(int, timeInput.split(':'))
                     timeInSeconds = minutes * 60 + seconds
                 else:
-                    timeInSeconds = int(time_input)
+                    timeInSeconds = int(timeInput)
 
                 self.startTimer(timeInSeconds)
-                self.messageLabel.setText(f"Timer set for {time_input}.")
+                self.messageLabel.setText(f"Timer set for {timeInput}.")
             except ValueError:
                 self.messageLabel.setText(
                     "Invalid time format. Please enter a number or time format (mm:ss).")
+            self.showBubble()
+        elif command.startswith("weather "):
+            cityName = command[len("weather "):].strip()
+            weatherData = get_weather(cityName, openWeatherKey)
+            # Parse and format the weatherData as needed
+            self.messageLabel.setText(self.formatWeatherData(weatherData))
             self.showBubble()
 
         # Check if the command starts with the prefix
