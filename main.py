@@ -72,7 +72,7 @@ def playPlaylist(playlistName):
     if playlistId:
         sp.start_playback(context_uri=f'spotify:playlist:{playlistId}')
     else:
-        print("Playlist not found.")
+        return ("Playlist not found.")
 
 
 def queueSong(songName):
@@ -123,7 +123,7 @@ def setAppVolumeByName(processName, level):
     if processId is not None:
         setAppVolume(processId, level)
     else:
-        print(f"No process found with the name '{processName}'")
+        return (f"No process found with the name '{processName}'")
 
 
 def setAppVolume(processId, level):
@@ -278,19 +278,18 @@ class ContinuousSpeechRecognition(QThread):
 
     def run(self):
         with self.microphone as source:
-            self.recognizer.adjust_for_ambient_noise(source, duration=3)
-            self.recognizer.dynamic_energy_threshold = True
-            self.recognizer.energy_threshold = 4000
+            self.recognizer.adjust_for_ambient_noise(source, duration=1)
+            self.recognizer.dynamic_energy_threshold = False
+            self.recognizer.energy_threshold = 300
 
         while not self.stop_flag:
             try:
                 with self.microphone as source:
-                    audio = self.recognizer.listen(
-                        source, timeout=1, phrase_time_limit=5)
+                    audio = self.recognizer.listen(source, timeout=5)
 
                 text = self.recognizer.recognize_google(audio)
                 if text.strip():
-                    print(text)
+                    # print(text) # Debugging message
                     self.recognizedText.emit(text)
 
             except sr.WaitTimeoutError:
@@ -303,7 +302,11 @@ class ContinuousSpeechRecognition(QThread):
                 # Could not request results
                 pass
 
-    def stop(self):
+    def startRecognition(self):
+        self.stop_flag = False
+        self.start()
+
+    def stopRecognition(self):
         self.stop_flag = True
 
 
@@ -344,10 +347,10 @@ class VirtualAssistant(QMainWindow):
     def __init__(self, blinkSpeed=35, blinkTimer=4000, bubbleTimerDuration=10000):
         super().__init__()
 
-        # self.speech_recognition_thread = ContinuousSpeechRecognition()
-        # self.speech_recognition_thread.recognizedText.connect(
-        #     self.processRecognizedText)
-        # self.speech_recognition_thread.start()
+        self.speech_recognition_thread = ContinuousSpeechRecognition()
+        self.speech_recognition_thread.recognizedText.connect(
+            self.processRecognizedText)
+        self.speech_recognition_thread.start()
 
         self.dbConnection = sqlite3.connect('conversationHistory.db')
         self.dbCursor = self.dbConnection.cursor()
@@ -401,7 +404,7 @@ class VirtualAssistant(QMainWindow):
         # Load the local font
         fontId = QFontDatabase.addApplicationFont("font/dogicapixel.ttf")
         if fontId == -1:
-            print("Failed to load font")
+            return ("Failed to load font")
         else:
             fontFamily = QFontDatabase.applicationFontFamilies(fontId)[0]
             customFont = QFont(fontFamily)
@@ -503,7 +506,7 @@ class VirtualAssistant(QMainWindow):
             self.dbConnection.commit()
         except sqlite3.Error as e:
             # Debugging message
-            print(f"An error occurred while creating the table: {e}")
+            return (f"An error occurred while creating the table: {e}")
 
     def saveConversationHistory(self, entry=None):
         tableName = f'history_{self.currentPromptType}'
@@ -552,29 +555,29 @@ class VirtualAssistant(QMainWindow):
         self.spriteItem.setVisible(True)
         self.chatBox.setVisible(True)
 
-    def closeEvent(self, event):
-        # Stop the speech recognition thread
-        if hasattr(self, 'speech_recognition_thread'):
-            self.speech_recognition_thread.stop()  # Signal the thread to stop
-            self.speech_recognition_thread.wait()  # Wait for the thread to finish
+    def forceCloseApplication(self):
+        # Terminate the speech recognition thread
+        if hasattr(self, 'speech_recognition_thread') and self.speech_recognition_thread.isRunning():
+            self.speech_recognition_thread.stopRecognition()
+            self.speech_recognition_thread.terminate()
+            self.speech_recognition_thread.wait()
 
-        # Terminate the TTSWorker process if it's running
-        if hasattr(self, 'ttsWorker'):
-            try:
-                if self.ttsWorker.isRunning():
-                    self.ttsWorker.terminate()
-                self.ttsWorker.process.join()  # Wait for the process to terminate
-            except Exception as e:
-                print(f"Error while terminating TTSWorker: {e}")
+        # Terminate the TTSWorker process
+        if hasattr(self, 'ttsWorker') and self.ttsWorker.isRunning():
+            self.ttsWorker.terminate()
+            self.ttsWorker.process.join()
 
-        # Terminate the GPTWorker thread if it's running
+        # Terminate the GPTWorker thread
         if hasattr(self, 'gptWorker') and self.gptWorker.isRunning():
             self.gptWorker.terminate()
             self.gptWorker.wait()
 
-        self.dbConnection.close()
-        event.accept()
-        super().closeEvent(event)
+        # Close database connection
+        if hasattr(self, 'dbConnection'):
+            self.dbConnection.close()
+
+        # Close the application
+        self.close()
 
     def initSpriteItem(self):
         initialPixmap = self.sprites[self.currentOutfit][self.currentExpression]
@@ -708,8 +711,7 @@ class VirtualAssistant(QMainWindow):
             response = requests.post(url, json=data, headers=headers)
             return response.ok
         except Exception as e:
-            print(f"Error controlling Home Assistant device: {e}")
-            return False
+            return (f"Error controlling Home Assistant device: {e}")
 
     def getHomeAssistantState(self, entityId):
         headers = {
@@ -724,14 +726,12 @@ class VirtualAssistant(QMainWindow):
             else:
                 return None
         except Exception as e:
-            print(f"Error fetching state from Home Assistant: {e}")
-            return None
+            return (f"Error fetching state from Home Assistant: {e}")
 
     def toggleHomeAssistantLight(self, entityId):
         currentState = self.getHomeAssistantState(entityId)
         if currentState is None:
-            print("Error getting current state")
-            return False
+            return ("Error getting current state")
 
         action = "turn_off" if currentState == "on" else "turn_on"
         return self.controlHomeAssistant(entityId, action)
@@ -748,20 +748,35 @@ class VirtualAssistant(QMainWindow):
 
             # Formatting the message
             weatherMessage = (f"Weather in {city}:\n"
-                            f"Condition: {weatherCondition.title()}\n"
-                            f"Temperature: {tempCelsius:.2f}°C\n"
-                            f"Humidity: {humidity}%")
+                              f"Condition: {weatherCondition.title()}\n"
+                              f"Temperature: {tempCelsius:.2f}°C\n"
+                              f"Humidity: {humidity}%")
 
             return weatherMessage
         except KeyError:
             return "Error: Could not parse weather data."
 
     def processRecognizedText(self, text):
-        # Process the recognized text here
-        self.gptWorker = GPTWorker(
-            text, self.conversationHistory, promptType=self.currentPromptType)
-        self.gptWorker.finished.connect(self.handleGptResponse)
-        self.gptWorker.start()
+        # Define the keyword or phrase to trigger GPT response
+        keyword = "yuki"
+
+        # Check if the recognized text starts with the keyword
+        if text.lower().startswith(keyword.lower()):
+            # Remove the keyword from the text
+            command = text[len(keyword):].strip()
+
+            # Add user command to history
+            newUserEntry = {"role": "user", "content": command}
+            self.conversationHistory.append(newUserEntry)
+            self.saveConversationHistory(newUserEntry)
+
+            # Handle the command with GPT
+            self.gptWorker = GPTWorker(
+                command, self.conversationHistory, promptType=self.currentPromptType)
+            self.gptWorker.finished.connect(self.handleGptResponse)
+            self.gptWorker.start()
+        else:
+            pass
 
     def processCommand(self):
         command = self.chatBox.text().strip()
@@ -779,9 +794,10 @@ class VirtualAssistant(QMainWindow):
 
         command = command.lower()
 
-        if command == "quit" or command == "close" or command == "exit" or command == "q":
-            self.close()
-        elif command == "volume up" or command == "vol up" or command == "vol+":
+        if command in ["quit", "close", "exit", "q"]:
+            self.forceCloseApplication()
+            return  # Return immediately to skip processing any further commands
+        elif command in ["volume up", "vol up", "vol+"]:
             newVolumeLevel = volume.GetMasterVolumeLevelScalar() + 0.1
             if newVolumeLevel > 1:  # Ensure the volume level does not exceed 100%
                 newVolumeLevel = 1
@@ -790,7 +806,7 @@ class VirtualAssistant(QMainWindow):
             percentVolume = round(newVolumeLevel * 100)
             self.messageLabel.setText(f"Master volume set to {percentVolume}%")
             self.showBubble()
-        elif command == "volume down" or command == "vol down" or command == "vol-":
+        elif command in ["volume down", "vol down", "vol-"]:
             newVolumeLevel = volume.GetMasterVolumeLevelScalar() - 0.1
             if newVolumeLevel < 0:  # Ensure the volume level does not go below 0%
                 newVolumeLevel = 0
@@ -855,7 +871,7 @@ class VirtualAssistant(QMainWindow):
         elif command == "hide":
             self.hideWindow()
             self.chatBox.clear()
-        elif command == "pause" or command == "play" or command == "p":
+        elif command in ["pause", "play", "p"]:
             simulatePlayPause()
             self.messageLabel.setText("Toggled play/pause.")
             self.showBubble()
@@ -864,8 +880,6 @@ class VirtualAssistant(QMainWindow):
             self.switchPrompt(newPromptType)
             self.messageLabel.setText(f"Switched to prompt: {newPromptType}")
             self.showBubble()
-        # elif command == "test":
-        #     self.testExpressions()
         elif command == "toggle":
             self.noTtsMode = not self.noTtsMode  # Toggle the TTS mode
             response = "TTS Mode Disabled" if self.noTtsMode else "TTS Mode Enabled"
@@ -903,11 +917,11 @@ class VirtualAssistant(QMainWindow):
             playlistId = command[len("playlist "):].strip()
             self.messageLabel.setText(playPlaylist(playlistId))
             self.showBubble()
-        elif command == "skip" or command == "next" or command == "n":
+        elif command in ["skip", "next", "n"]:
             sp.next_track()
             self.messageLabel.setText("Skipped to next track.")
             self.showBubble()
-        elif command == "back" or command == "prev" or command == "b":
+        elif command in ["back", "prev", "b"]:
             sp.previous_track()
             self.messageLabel.setText("Skipped to previous track.")
             self.showBubble()
@@ -936,6 +950,14 @@ class VirtualAssistant(QMainWindow):
             weatherData = get_weather(cityName, openWeatherKey)
             # Parse and format the weatherData as needed
             self.messageLabel.setText(self.formatWeatherData(weatherData))
+            self.showBubble()
+        elif command == "stt":
+            if self.speech_recognition_thread.isRunning():
+                self.speech_recognition_thread.stopRecognition()
+                self.messageLabel.setText("Speech recognition turned off.")
+            else:
+                self.speech_recognition_thread.startRecognition()
+                self.messageLabel.setText("Speech recognition turned on.")
             self.showBubble()
 
         # Check if the command starts with the prefix
