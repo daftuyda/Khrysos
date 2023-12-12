@@ -9,6 +9,7 @@ import requests
 import keyboard
 import sympy
 import spotipy
+import speech_recognition as sr
 from spotipy.oauth2 import SpotifyOAuth
 from pytube import YouTube
 from multiprocessing import Process, Queue
@@ -258,6 +259,46 @@ class TTSWorker:
             self.process.terminate()
 
 
+class ContinuousSpeechRecognition(QThread):
+    recognizedText = pyqtSignal(str)
+
+    def __init__(self):
+        super(ContinuousSpeechRecognition, self).__init__()
+        self.recognizer = sr.Recognizer()
+        self.microphone = sr.Microphone()
+        self.stop_flag = False
+
+    def run(self):
+        with self.microphone as source:
+            self.recognizer.adjust_for_ambient_noise(source, duration=3)
+            self.recognizer.dynamic_energy_threshold = True
+            self.recognizer.energy_threshold = 4000
+
+        while not self.stop_flag:
+            try:
+                with self.microphone as source:
+                    audio = self.recognizer.listen(
+                        source, timeout=1, phrase_time_limit=5)
+
+                text = self.recognizer.recognize_google(audio)
+                if text.strip():
+                    print(text)
+                    self.recognizedText.emit(text)
+
+            except sr.WaitTimeoutError:
+                # Timeout occurs, loop continues
+                pass
+            except sr.UnknownValueError:
+                # Could not understand audio
+                pass
+            except sr.RequestError as e:
+                # Could not request results
+                pass
+
+    def stop(self):
+        self.stop_flag = True
+
+
 class ClickablePixmapItem(QGraphicsPixmapItem):
     def __init__(self, pixmap, virtualAssistant, parent=None):
         super().__init__(pixmap, parent)
@@ -272,10 +313,13 @@ class ClickablePixmapItem(QGraphicsPixmapItem):
 
 class VirtualAssistant(QMainWindow):
 
-    displayDelayedResponse = pyqtSignal(str)
-
-    def __init__(self, blinkSpeed=35, blinkTimer=4000, delayDuration=5, bubbleTimerDuration=10000):
+    def __init__(self, blinkSpeed=35, blinkTimer=4000, bubbleTimerDuration=10000):
         super().__init__()
+
+        # self.speech_recognition_thread = ContinuousSpeechRecognition()
+        # self.speech_recognition_thread.recognizedText.connect(
+        #     self.processRecognizedText)
+        # self.speech_recognition_thread.start()
 
         self.dbConnection = sqlite3.connect('conversationHistory.db')
         self.dbCursor = self.dbConnection.cursor()
@@ -341,8 +385,7 @@ class VirtualAssistant(QMainWindow):
         self.blinkFrameTimer.timeout.connect(self.blinkFrame)
         self.blinkFrameSpeed = blinkSpeed
 
-        # Set the delay and bubble timer durations
-        self.delayDuration = delayDuration
+        # Set bubble timer durations
         self.bubbleTimerDuration = bubbleTimerDuration
 
         # Set up the rest of the window
@@ -412,9 +455,6 @@ class VirtualAssistant(QMainWindow):
         self.chatBox.setFocus()
         self.chatBox.returnPressed.connect(self.processCommand)
 
-        # Connect the custom signal to the slot
-        self.displayDelayedResponse.connect(self.updateDisplayForTTS)
-
         self.currentPromptType = self.loadConfig()
         self.createDatabase(self.currentPromptType)
         self.loadConversationHistory()
@@ -463,6 +503,11 @@ class VirtualAssistant(QMainWindow):
         self.saveConfig()
 
     def closeEvent(self, event):
+        # Stop the speech recognition thread
+        if hasattr(self, 'speech_recognition_thread'):
+            self.speech_recognition_thread.stop()  # Signal the thread to stop
+            self.speech_recognition_thread.wait()  # Wait for the thread to finish
+
         # Terminate the TTSWorker process if it's running
         if hasattr(self, 'ttsWorker'):
             try:
@@ -479,6 +524,7 @@ class VirtualAssistant(QMainWindow):
 
         self.dbConnection.close()
         event.accept()
+        super().closeEvent(event)
 
     def initSpriteItem(self):
         initialPixmap = self.sprites[self.currentOutfit][self.currentExpression]
@@ -640,6 +686,13 @@ class VirtualAssistant(QMainWindow):
         action = "turn_off" if currentState == "on" else "turn_on"
         return self.controlHomeAssistant(entityId, action)
 
+    def processRecognizedText(self, text):
+        # Process the recognized text here
+        self.gptWorker = GPTWorker(
+            text, self.conversationHistory, promptType=self.currentPromptType)
+        self.gptWorker.finished.connect(self.handleGptResponse)
+        self.gptWorker.start()
+
     def processCommand(self):
         command = self.chatBox.text().strip()
 
@@ -666,6 +719,7 @@ class VirtualAssistant(QMainWindow):
             # Convert to percentage and round off
             percentVolume = round(newVolumeLevel * 100)
             self.messageLabel.setText(f"Master volume set to {percentVolume}%")
+            self.showBubble()
         elif command == "volume down" or command == "vol down" or command == "vol-":
             newVolumeLevel = volume.GetMasterVolumeLevelScalar() - 0.1
             if newVolumeLevel < 0:  # Ensure the volume level does not go below 0%
@@ -674,6 +728,7 @@ class VirtualAssistant(QMainWindow):
             # Convert to percentage and round off
             percentVolume = round(newVolumeLevel * 100)
             self.messageLabel.setText(f"Master volume set to {percentVolume}%")
+            self.showBubble()
         elif command.startswith("volume ") or command.startswith("vol "):
             volumeCommand = command.split("volume ")[1].lower()
             if volumeCommand == "max":
@@ -694,6 +749,7 @@ class VirtualAssistant(QMainWindow):
                     return
             volume.SetMasterVolumeLevelScalar(volumeLevel, None)
             self.messageLabel.setText(f"Master volume set to {percent}%.")
+            self.showBubble()
         elif (" volume ") in command or (" vol ") in command:
             parts = command.split()
             if len(parts) == 3:
@@ -722,42 +778,52 @@ class VirtualAssistant(QMainWindow):
             else:
                 self.messageLabel.setText(
                     "Invalid command format. Use: [App name] volume [Level]")
+            self.showBubble()
         elif command == "app list":
             self.messageLabel.setText(listAudioSessions())
+            self.showBubble()
         elif command == "hide":
             # Disable always on top
             self.setWindowFlag(Qt.WindowStaysOnTopHint, False)
             self.setVisible(True)
             self.messageLabel.setText("I'm hiding!")
             self.showMinimized()
+            self.showBubble()
         elif command == "show":
             # Enable always on top
             self.show()
             self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
             self.setVisible(True)
             self.messageLabel.setText("I'm back!")
+            self.showBubble()
         elif command == "pause" or command == "play" or command == "p":
             simulatePlayPause()
             self.messageLabel.setText("Toggled play/pause.")
+            self.showBubble()
         elif command.lower().startswith("switch "):
             newPromptType = command[len("switch "):].strip()
             self.switchPrompt(newPromptType)
             self.messageLabel.setText(f"Switched to prompt: {newPromptType}")
+            self.showBubble()
         # elif command == "test":
         #     self.testExpressions()
         elif command == "toggle":
             self.noTtsMode = not self.noTtsMode  # Toggle the TTS mode
             response = "TTS Mode Disabled" if self.noTtsMode else "TTS Mode Enabled"
             self.messageLabel.setText(response)
+            self.showBubble()
         elif command == "help":
             helpMessage = self.getHelpMessage()
             self.messageLabel.setText(helpMessage)
+            self.showBubble()
         elif command.startswith("play "):
             songName = command[len("play "):].strip()
             self.messageLabel.setText(searchAndPlay(songName))
+            self.showBubble()
         elif command in self.shortcuts:
             keyboard.send(self.shortcuts[command])
-            self.messageLabel.setText(f"Sent shortcut: {command}")
+            self.messageLabel.setText(f"Shortcut: {command}")
+            self.showBubble()
         elif command.startswith("toggle"):
             lightName = command.replace("toggle", "").strip()
             if lightName in self.lights:
@@ -766,24 +832,31 @@ class VirtualAssistant(QMainWindow):
             else:
                 self.messageLabel.setText(
                     f"Light '{lightName}' not found in configuration.")
+            self.showBubble()
         elif command.startswith("queue "):
             songName = command[len("queue "):].strip()
             self.messageLabel.setText(queueSong(songName))
+            self.showBubble()
         elif command.startswith("playlist -l"):
             self.messageLabel.setText(getPlaylists())
+            self.showBubble()
         elif command.startswith("playlist "):
             playlistId = command[len("playlist "):].strip()
             self.messageLabel.setText(playPlaylist(playlistId))
+            self.showBubble()
         elif command == "skip" or command == "next" or command == "n":
             sp.next_track()
             self.messageLabel.setText("Skipped to next track.")
+            self.showBubble()
         elif command == "back" or command == "prev" or command == "b":
             sp.previous_track()
             self.messageLabel.setText("Skipped to previous track.")
+            self.showBubble()
         elif command.startswith("calc "):
             expression = command[len("calc "):].strip()
             result = calculateExpr(expression)
             self.messageLabel.setText(result)
+            self.showBubble()
         elif command.startswith("timer "):
             try:
                 time_input = command[len("timer "):].strip()
@@ -798,30 +871,24 @@ class VirtualAssistant(QMainWindow):
             except ValueError:
                 self.messageLabel.setText(
                     "Invalid time format. Please enter a number or time format (mm:ss).")
-
-        self.speechBubbleItem.setVisible(True)
-        self.hideBubbleTimer.start(self.bubbleTimerDuration)
-        self.chatBox.clear()
+            self.showBubble()
 
         # Check if the command starts with the prefix
-        if not command.lower().startswith(prefix.lower()):
+        if command.lower().startswith(prefix.lower()):
+            # Remove the prefix and process the GPT command
+            command = command[len(prefix):].strip().lower()
+
+            # Add user command to history
+            newUserEntry = {"role": "user", "content": command}
+            self.conversationHistory.append(newUserEntry)
+            self.saveConversationHistory(newUserEntry)
+
+            self.gptWorker = GPTWorker(
+                command, self.conversationHistory, promptType=self.currentPromptType)
+            self.gptWorker.finished.connect(self.handleGptResponse)
+            self.gptWorker.start()
+
             self.chatBox.clear()
-            return
-
-        # Remove the prefix from the command
-        command = command[len(prefix):].strip().lower()
-
-        # Add user command to history
-        newUserEntry = {"role": "user", "content": command}
-        self.conversationHistory.append(newUserEntry)
-        self.saveConversationHistory(newUserEntry)
-
-        self.gptWorker = GPTWorker(
-            command, self.conversationHistory, promptType=self.currentPromptType)
-        self.gptWorker.finished.connect(self.handleGptResponse)
-        self.gptWorker.start()
-
-        self.chatBox.clear()
 
     def handleGptResponse(self, gptResponse):
         newAssistantEntry = {"role": "assistant", "content": gptResponse}
@@ -830,7 +897,6 @@ class VirtualAssistant(QMainWindow):
 
         if gptResponse.startswith('[') and ']' in gptResponse:
             endBracketIndex = gptResponse.find(']')
-            # Convert expression to lowercase
             expression = gptResponse[1:endBracketIndex].strip().lower()
             message = gptResponse[endBracketIndex + 1:].strip()
 
@@ -841,34 +907,27 @@ class VirtualAssistant(QMainWindow):
         else:
             message = gptResponse  # Use the original message if no expression is found
 
-        # Use threading to introduce delay
-        threading.Thread(target=self.delayedDisplay, args=(message,)).start()
-
-    def delayedDisplay(self, message):
-        time.sleep(self.delayDuration)
-        self.displayDelayedResponse.emit(message)
-
-    def updateDisplayForTTS(self, message):
-        # This method runs in the main thread
+        self.startTTS(message)
+        self.showBubble()
         self.messageLabel.setText(message)
+
+    def showBubble(self):
         self.speechBubbleItem.setVisible(True)
         self.hideBubbleTimer.start(self.bubbleTimerDuration)
+        self.chatBox.clear()
 
+    def startTTS(self, text):
         if not self.noTtsMode:
-            messages = [message]  # Prepare the message for TTS
-            self.ttsWorker = TTSWorker(messages)
+            self.ttsWorker = TTSWorker([text])  # Pass the text as a list
             self.ttsWorker.start()
-        else:
-            print(message)
 
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     blinkSpeed = 25
     blinkTimer = 4000
-    delayDuration = 0
-    bubbleTimerDuration = 4000
+    bubbleTimerDuration = 6000
     assistant = VirtualAssistant(
-        blinkSpeed, blinkTimer, delayDuration, bubbleTimerDuration)
+        blinkSpeed, blinkTimer, bubbleTimerDuration)
     assistant.show()
     sys.exit(app.exec_())
