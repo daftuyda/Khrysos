@@ -554,6 +554,7 @@ class VirtualAssistant(QMainWindow):
         # Show the main application components
         self.spriteItem.setVisible(True)
         self.chatBox.setVisible(True)
+        self.messageLabel.setVisible(True)
 
     def forceCloseApplication(self):
         # Terminate the speech recognition thread
