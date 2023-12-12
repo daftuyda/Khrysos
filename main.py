@@ -299,6 +299,26 @@ class ContinuousSpeechRecognition(QThread):
         self.stop_flag = True
 
 
+class ClickableBox(QMainWindow):
+    boxClicked = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super(ClickableBox, self).__init__(parent)
+        self.setFixedSize(25, 25)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self.setStyleSheet(
+            "background-color: rgba(0, 0, 0, 0.75); border-radius: 5px;")
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.boxClicked.emit()
+            self.hide()
+
+    def showBox(self):
+        self.show()
+        self.activateWindow()
+
+
 class ClickablePixmapItem(QGraphicsPixmapItem):
     def __init__(self, pixmap, virtualAssistant, parent=None):
         super().__init__(pixmap, parent)
@@ -330,6 +350,11 @@ class VirtualAssistant(QMainWindow):
         self.isBlinking = False
         self.blinkingIndex = 0
         self.noTtsMode = False
+
+        # Initialize and connect the ClickableBox
+        self.clickableBox = ClickableBox(self)
+        self.clickableBox.boxClicked.connect(self.showComponents)
+        self.clickableBox.hide()  # Initially hidden
 
         self.current = volume.GetMasterVolumeLevel()
 
@@ -389,7 +414,7 @@ class VirtualAssistant(QMainWindow):
         self.bubbleTimerDuration = bubbleTimerDuration
 
         # Set up the rest of the window
-        self.setFixedSize(400, 450)
+        self.setFixedSize(400, 430)
         self.setWindowFlags(self.windowFlags() | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAutoFillBackground(False)
@@ -501,6 +526,23 @@ class VirtualAssistant(QMainWindow):
         self.createDatabase(newPromptType)
         self.loadConversationHistory()  # Load history from the new table
         self.saveConfig()
+
+    def hideWindow(self):
+        # Hide the main window components
+        self.spriteItem.setVisible(False)
+        self.speechBubbleItem.setVisible(False)
+        self.messageLabel.setVisible(False)
+        self.chatBox.setVisible(False)
+
+        self.clickableBox.raise_()  # Bring the box to the front
+        self.clickableBox.setFocus()  # Set focus to the box
+        self.clickableBox.move(350, 380) # Hard code position cus I suck
+        self.clickableBox.show()
+
+    def showComponents(self):
+        # Show the main application components
+        self.spriteItem.setVisible(True)
+        self.chatBox.setVisible(True)
 
     def closeEvent(self, event):
         # Stop the speech recognition thread
@@ -783,19 +825,8 @@ class VirtualAssistant(QMainWindow):
             self.messageLabel.setText(listAudioSessions())
             self.showBubble()
         elif command == "hide":
-            # Disable always on top
-            self.setWindowFlag(Qt.WindowStaysOnTopHint, False)
-            self.setVisible(True)
-            self.messageLabel.setText("I'm hiding!")
-            self.showMinimized()
-            self.showBubble()
-        elif command == "show":
-            # Enable always on top
-            self.show()
-            self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
-            self.setVisible(True)
-            self.messageLabel.setText("I'm back!")
-            self.showBubble()
+            self.hideWindow()
+            self.chatBox.clear()
         elif command == "pause" or command == "play" or command == "p":
             simulatePlayPause()
             self.messageLabel.setText("Toggled play/pause.")
