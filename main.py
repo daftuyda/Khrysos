@@ -269,6 +269,7 @@ class TTSWorker:
 
 class ContinuousSpeechRecognition(QThread):
     recognizedText = pyqtSignal(str)
+    recognizedCommand = pyqtSignal(str)
 
     def __init__(self):
         super(ContinuousSpeechRecognition, self).__init__()
@@ -280,17 +281,18 @@ class ContinuousSpeechRecognition(QThread):
         with self.microphone as source:
             self.recognizer.adjust_for_ambient_noise(source, duration=1)
             self.recognizer.dynamic_energy_threshold = False
-            self.recognizer.energy_threshold = 300
+            self.recognizer.energy_threshold = 600
 
         while not self.stop_flag:
             try:
                 with self.microphone as source:
-                    audio = self.recognizer.listen(source, timeout=5)
+                    audio = self.recognizer.listen(source, timeout=2)
 
                 text = self.recognizer.recognize_google(audio)
                 if text.strip():
-                    # print(text) # Debugging message
+                    # print(text)  # Debugging message
                     self.recognizedText.emit(text)
+                    self.recognizedCommand.emit(text)
 
             except sr.WaitTimeoutError:
                 # Timeout occurs, loop continues
@@ -350,6 +352,8 @@ class VirtualAssistant(QMainWindow):
         self.speech_recognition_thread = ContinuousSpeechRecognition()
         self.speech_recognition_thread.recognizedText.connect(
             self.processRecognizedText)
+        self.speech_recognition_thread.recognizedCommand.connect(
+            self.processVoiceCommand)
         self.speech_recognition_thread.start()
 
         self.dbConnection = sqlite3.connect('conversationHistory.db')
@@ -489,7 +493,7 @@ class VirtualAssistant(QMainWindow):
             "background-color: white; color: black; border: 2px solid black; border-radius: 5px;")
         self.chatBox.setPlaceholderText("Use the 'gpt' prefix for ChatGPT.")
         self.chatBox.setFocus()
-        self.chatBox.returnPressed.connect(self.processCommand)
+        self.chatBox.returnPressed.connect(self.processChatboxCommand)
 
         self.currentPromptType = self.loadConfig()
         self.createDatabase(self.currentPromptType)
@@ -779,8 +783,18 @@ class VirtualAssistant(QMainWindow):
         else:
             pass
 
-    def processCommand(self):
-        command = self.chatBox.text().strip()
+    def processVoiceCommand(self, command):
+        # Process the command received from speech recognition
+        self.processCommand(command)
+
+    def processChatboxCommand(self):
+        # Get the text from the chatbox and process it as a command
+        command = self.chatBox.text()
+        self.processCommand(command)
+        self.chatBox.clear()
+
+    def processCommand(self, command):
+        command = command.lower().strip()
 
         # Define a prefix for chatgpt
         prefix = "gpt"
@@ -892,7 +906,7 @@ class VirtualAssistant(QMainWindow):
             self.showBubble()
         elif command.startswith("play "):
             songName = command[len("play "):].strip()
-            self.messageLabel.setText(searchAndPlay(songName))
+            self.messageLabel.setText(queueSong(songName))
             self.showBubble()
         elif command in self.shortcuts:
             keyboard.send(self.shortcuts[command])
@@ -906,10 +920,6 @@ class VirtualAssistant(QMainWindow):
             else:
                 self.messageLabel.setText(
                     f"Light '{lightName}' not found in configuration.")
-            self.showBubble()
-        elif command.startswith("queue "):
-            songName = command[len("queue "):].strip()
-            self.messageLabel.setText(queueSong(songName))
             self.showBubble()
         elif command.startswith("playlist -l"):
             self.messageLabel.setText(getPlaylists())
