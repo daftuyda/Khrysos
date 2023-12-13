@@ -279,14 +279,15 @@ class ContinuousSpeechRecognition(QThread):
 
     def run(self):
         with self.microphone as source:
-            self.recognizer.adjust_for_ambient_noise(source, duration=1.5)
+            self.recognizer.adjust_for_ambient_noise(source, duration=1)
             self.recognizer.dynamic_energy_threshold = False
-            self.recognizer.energy_threshold = 600
+            self.recognizer.energy_threshold = 300
 
         while not self.stop_flag:
             try:
                 with self.microphone as source:
-                    audio = self.recognizer.listen(source, timeout=1)
+                    audio = self.recognizer.listen(
+                        source, timeout=0.5, phrase_time_limit=3)
 
                 text = self.recognizer.recognize_google(audio)
                 if text.strip():
@@ -327,10 +328,6 @@ class ClickableBox(QMainWindow):
             self.boxClicked.emit()
             self.hide()
 
-    def showBox(self):
-        self.show()
-        self.activateWindow()
-
 
 class ClickablePixmapItem(QGraphicsPixmapItem):
     def __init__(self, pixmap, virtualAssistant, parent=None):
@@ -365,6 +362,7 @@ class VirtualAssistant(QMainWindow):
         self.isBlinking = False
         self.blinkingIndex = 0
         self.noTtsMode = False
+        self.isAppVisible = True
 
         # Initialize and connect the ClickableBox
         self.clickableBox = ClickableBox(self)
@@ -543,6 +541,8 @@ class VirtualAssistant(QMainWindow):
         self.saveConfig()
 
     def hideWindow(self):
+        self.isAppVisible = False
+
         # Hide the main window components
         self.spriteItem.setVisible(False)
         self.speechBubbleItem.setVisible(False)
@@ -555,6 +555,8 @@ class VirtualAssistant(QMainWindow):
         self.clickableBox.show()
 
     def showComponents(self):
+        self.isAppVisible = True
+
         # Show the main application components
         self.spriteItem.setVisible(True)
         self.chatBox.setVisible(True)
@@ -785,17 +787,12 @@ class VirtualAssistant(QMainWindow):
 
     def processVoiceCommand(self, command):
         # Check if the window is visible
-        if not self.isVisible():
-            return  # Do not process commands if the window is hidden
+        if not self.isAppVisible:
+            return
 
-        # Process the command received from speech recognition
         self.processCommand(command)
 
     def processChatboxCommand(self):
-        # Check if the window is visible
-        if not self.isVisible():
-            return  # Do not process commands if the window is hidden
-
         # Get the text from the chatbox and process it as a command
         command = self.chatBox.text()
         self.processCommand(command)
