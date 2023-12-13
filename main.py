@@ -21,7 +21,7 @@ from openai import OpenAI
 from PyQt5.QtMultimedia import QSound
 from PyQt5.QtWidgets import QApplication, QMainWindow, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QLineEdit, QLabel
 from PyQt5.QtGui import QPixmap, QFont, QFontDatabase
-from PyQt5.QtCore import QTimer, Qt, QThread, pyqtSignal
+from PyQt5.QtCore import QTimer, Qt, QThread, pyqtSignal, QObject
 
 load_dotenv()
 
@@ -158,20 +158,6 @@ def calculateExpr(expression):
         return f"Error: {str(e)}"
 
 
-def downloadYt(url, path='downloads/'):
-    try:
-        yt = YouTube(url)
-        video = yt.streams.filter(progressive=True, file_extension='mp4').order_by(
-            'resolution').desc().first()
-        if video:
-            video.download(path)
-            return f"Downloaded: {yt.title}"
-        else:
-            return "No suitable video stream found."
-    except Exception as e:
-        return f"Error: {str(e)}"
-
-
 def get_weather(cityName, api_key):
     base_url = "http://api.openweathermap.org/data/2.5/weather?"
     complete_url = f"{base_url}appid={api_key}&q={cityName}"
@@ -188,7 +174,7 @@ def ttsTask(texts, apiKey, queue):
                 voice=Voice(
                     voice_id='EqudVpb9UKv174PwNcST',
                     settings=VoiceSettings(
-                        stability=0.3, similarity_boost=0.4, style=0.0, use_speaker_boost=True)
+                        stability=0.25, similarity_boost=0.3, style=0.0, use_speaker_boost=True)
                 ),
                 model="eleven_turbo_v2"
             )
@@ -202,6 +188,28 @@ def ttsTask(texts, apiKey, queue):
 
 openAiKey = os.getenv('OPENAI_API_KEY')
 client = OpenAI(api_key=openAiKey)
+
+
+class DownloadWorker(QObject):
+    finished = pyqtSignal(str)
+    error = pyqtSignal(str)
+
+    def __init__(self, url, path='downloads/'):
+        super().__init__()
+        self.url = url
+        self.path = path
+
+    def run(self):
+        try:
+            yt = YouTube(self.url)
+            video = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
+            if video:
+                video.download(self.path)
+                self.finished.emit(f"Downloaded: {yt.title}")
+            else:
+                self.error.emit("No suitable video stream found.")
+        except Exception as e:
+            self.error.emit(f"Error: {str(e)}")
 
 
 class GPTWorker(QThread):
@@ -342,7 +350,6 @@ class ClickablePixmapItem(QGraphicsPixmapItem):
 
 
 class VirtualAssistant(QMainWindow):
-
     def __init__(self, blinkSpeed=35, blinkTimer=4000, bubbleTimerDuration=10000):
         super().__init__()
 
@@ -814,18 +821,25 @@ class VirtualAssistant(QMainWindow):
         self.chatBox.clear()
 
     def processCommand(self, command):
-        command = command.lower().strip()
+        command = command.strip()
 
         # Define a prefix for chatgpt
         prefix = "gpt"
 
-        if command.startswith("dl"):
+        if command.startswith("dl "):
             url = command[len("dl "):].strip()
-            self.speechBubbleItem.setVisible(True)
-            self.hideBubbleTimer.start(self.bubbleTimerDuration)
+            self.downloadWorker = DownloadWorker(url)
+            # Connect signals
+            self.downloadWorker.finished.connect(self.onDownloadFinished)
+            self.downloadWorker.error.connect(self.onDownloadError)
+            # Move the worker to a thread and start the thread
+            self.downloadThread = QThread()
+            self.downloadWorker.moveToThread(self.downloadThread)
+            self.downloadThread.started.connect(self.downloadWorker.run)
+            self.downloadThread.start()
+
             self.messageLabel.setText("Downloading video...")
-            result = downloadYt(url)
-            self.messageLabel.setText(result)
+            self.showBubble()
 
         command = command.lower()
 
@@ -1044,6 +1058,17 @@ class VirtualAssistant(QMainWindow):
             self.ttsWorker = TTSWorker([text])  # Pass the text as a list
             self.ttsWorker.start()
 
+    def onDownloadFinished(self, message):
+        # Update the UI with the success message
+        self.messageLabel.setText(message)
+        self.downloadThread.quit()
+        self.downloadThread.wait()
+
+    def onDownloadError(self, error_message):
+        # Update the UI with the error message
+        self.messageLabel.setText(error_message)
+        self.downloadThread.quit()
+        self.downloadThread.wait()
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
