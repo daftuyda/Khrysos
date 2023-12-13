@@ -8,6 +8,7 @@ import requests
 import keyboard
 import sympy
 import spotipy
+from gpt4all import GPT4All
 import speech_recognition as sr
 from spotipy.oauth2 import SpotifyOAuth
 from pytube import YouTube
@@ -213,6 +214,54 @@ class DownloadWorker(QObject):
             self.error.emit(f"Error: {str(e)}")
 
 
+class LocalGPTWorker(QThread):
+    finished = pyqtSignal(str)
+
+    def __init__(self, message, conversationHistory, promptType="default"):
+        super().__init__()
+        self.message = message
+        self.conversationHistory = conversationHistory
+        self.promptType = promptType
+        self.systemPrompts = self.loadSystemPrompts()
+        # Load your local model here (adjust the path and model name as needed)
+        self.model = GPT4All(
+            model_name="mistral-7b-openorca.Q4_0.gguf")
+
+    @staticmethod
+    def loadSystemPrompts():
+        prompts = {}
+        promptDir = 'prompts/'  # Update with the correct path
+        for filename in os.listdir(promptDir):
+            if filename.endswith('.txt'):
+                # Get the file name without the extension
+                promptType = filename.rsplit('.', 1)[0]
+                with open(os.path.join(promptDir, filename), 'r') as file:
+                    prompts[promptType] = file.read().strip()
+        return prompts
+
+    def run(self):
+        try:
+            # Process the conversation history and the new message
+            history = "\n".join([entry['content']
+                                for entry in self.conversationHistory])
+            prompt = f"{history}\n{self.message}"
+
+            self.systemPrompt = self.systemPrompts.get(
+                self.promptType, "default") + "(With each response add an expression from 'Normal, Surprised, Love, Happy, Confused, Angry' to the start of the message in square brackets, use the often and don't use the same one more than twice in a row.) Keep messages to a 110 character limit if possible."
+            prompt_template = 'USER: {0}\nASSISTANT: '
+
+            # Generate a response using the local model
+            prompt = self.systemPrompt + prompt_template.format(prompt)
+            response = self.model.generate(
+                prompt, max_tokens=1024, temp=0.7, top_p=0.4, top_k=40, repeat_penalty=1.18, repeat_last_n=64, n_batch=128)
+            assistantMessage = response.strip()
+
+            # Emit the signal with the generated response
+            self.finished.emit(assistantMessage)
+        except Exception as e:
+            self.finished.emit(f"Error: {str(e)}")
+
+
 class GPTWorker(QThread):
     finished = pyqtSignal(str)
 
@@ -289,18 +338,18 @@ class ContinuousSpeechRecognition(QThread):
     def run(self):
         with self.microphone as source:
             self.recognizer.adjust_for_ambient_noise(source, duration=2)
-            self.recognizer.dynamic_energy_threshold = True
-            # self.recognizer.energy_threshold = 1000
+            # self.recognizer.dynamic_energy_threshold = True
+            self.recognizer.energy_threshold = 2000
             self.recognizer.pause_threshold = 0.8
 
         while not self.stop_flag:
             try:
                 with self.microphone as source:
-                    audio = self.recognizer.listen(source, timeout=0.5)
+                    audio = self.recognizer.listen(source)
 
                 text = self.recognizer.recognize_google(audio)
                 if text.strip():
-                    # print(text)  # Debugging message
+                    print(text)  # Debugging message
                     self.recognizedText.emit(text)
                     self.recognizedCommand.emit(text)
 
@@ -379,6 +428,7 @@ class VirtualAssistant(QMainWindow):
         self.noTtsMode = False
         self.isAppVisible = True
         self.liveMode = False
+        self.useLocalGPT = False
 
         # Initialize and connect the ClickableBox
         self.clickableBox = ClickableBox(self)
@@ -602,6 +652,11 @@ class VirtualAssistant(QMainWindow):
             self.gptWorker.terminate()
             self.gptWorker.wait()
 
+        # Terminate the GPTWorker thread
+        if hasattr(self, 'localGptWorker') and self.localGptWorker.isRunning():
+            self.localGptWorker.terminate()
+            self.localGptWorker.wait()
+
         # Close database connection
         if hasattr(self, 'dbConnection'):
             self.dbConnection.close()
@@ -800,6 +855,12 @@ class VirtualAssistant(QMainWindow):
         self.keyword = newKeyword
         self.saveConfig()
 
+    def toggleGPTWorker(self):
+        self.useLocalGPT = not self.useLocalGPT
+        workerType = "Local GPT" if self.useLocalGPT else "GPT"
+        self.messageLabel.setText(f"Switched to {workerType} Worker")
+        self.showBubble()
+
     def processRecognizedText(self, text):
         # In live mode, process the entire text as is
         if self.liveMode:
@@ -815,10 +876,16 @@ class VirtualAssistant(QMainWindow):
         self.conversationHistory.append(newUserEntry)
         self.saveConversationHistory(newUserEntry)
 
-        self.gptWorker = GPTWorker(
-            command, self.conversationHistory, promptType=self.currentPromptType)
-        self.gptWorker.finished.connect(self.handleGptResponse)
-        self.gptWorker.start()
+        if self.useLocalGPT:
+            self.localGptWorker = LocalGPTWorker(
+                command, self.conversationHistory, promptType=self.currentPromptType)
+            self.localGptWorker.finished.connect(self.handleGptResponse)
+            self.localGptWorker.start()
+        else:
+            self.gptWorker = GPTWorker(
+                command, self.conversationHistory, promptType=self.currentPromptType)
+            self.gptWorker.finished.connect(self.handleGptResponse)
+            self.gptWorker.start()
 
     def processVoiceCommand(self, command):
         # Check if the window is visible
@@ -1027,6 +1094,8 @@ class VirtualAssistant(QMainWindow):
             self.showBubble()
         elif command == "live mode":
             self.toggleLiveMode()
+        elif command == "worker":
+            self.toggleGPTWorker()
 
         # Check if the command starts with the prefix
         if command.lower().startswith(prefix.lower()):
@@ -1038,10 +1107,17 @@ class VirtualAssistant(QMainWindow):
             self.conversationHistory.append(newUserEntry)
             self.saveConversationHistory(newUserEntry)
 
-            self.gptWorker = GPTWorker(
-                command, self.conversationHistory, promptType=self.currentPromptType)
-            self.gptWorker.finished.connect(self.handleGptResponse)
-            self.gptWorker.start()
+            # Use LocalGPTWorker for processing text with your local model
+            if self.useLocalGPT:
+                self.localGptWorker = LocalGPTWorker(
+                    command, self.conversationHistory, promptType=self.currentPromptType)
+                self.localGptWorker.finished.connect(self.handleGptResponse)
+                self.localGptWorker.start()
+            else:
+                self.gptWorker = GPTWorker(
+                    command, self.conversationHistory, promptType=self.currentPromptType)
+                self.gptWorker.finished.connect(self.handleGptResponse)
+                self.gptWorker.start()
 
             self.chatBox.clear()
 
