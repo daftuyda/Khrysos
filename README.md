@@ -6,7 +6,8 @@ Virtual anime assistant - YuKi
 Like [Maid-Chan](https://www.youtube.com/watch?v=xHMDiscnKb4) from Sakurasou but worse.
 
 ## Features
-- ChatGPT intergration
+- ChatGPT integration
+- Local GPT prompt generation (No API key)
 - Live interaction
 - Speech recognition
 - Voice commands
