@@ -202,7 +202,8 @@ class DownloadWorker(QObject):
     def run(self):
         try:
             yt = YouTube(self.url)
-            video = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
+            video = yt.streams.filter(progressive=True, file_extension='mp4').order_by(
+                'resolution').desc().first()
             if video:
                 video.download(self.path)
                 self.finished.emit(f"Downloaded: {yt.title}")
@@ -239,8 +240,8 @@ class GPTWorker(QThread):
             systemPrompt = self.systemPrompts.get(
                 self.promptType, "default")
             messages = [
-                {"role": "system", "content": systemPrompt + """(With each response add an expression from 'Normal, Surprised, Love, Happy, Confused, Angry' 
-                 to the start of the message in square brackets, use the often and don't use the same one more than twice in a row.) Keep messages to a 110 character limit if possible."""}
+                {"role": "system", "content": systemPrompt +
+                    """(With each response add an expression from 'Normal, Surprised, Love, Happy, Confused, Angry' to the start of the message in square brackets, use the often and don't use the same one more than twice in a row.) Keep messages to a 110 character limit if possible."""}
             ]
             messages += self.conversationHistory
             messages.append({"role": "user", "content": self.message})
@@ -287,15 +288,15 @@ class ContinuousSpeechRecognition(QThread):
 
     def run(self):
         with self.microphone as source:
-            self.recognizer.adjust_for_ambient_noise(source, duration=1)
-            self.recognizer.dynamic_energy_threshold = False
-            self.recognizer.energy_threshold = 300
+            self.recognizer.adjust_for_ambient_noise(source, duration=2)
+            self.recognizer.dynamic_energy_threshold = True
+            # self.recognizer.energy_threshold = 1000
+            self.recognizer.pause_threshold = 0.8
 
         while not self.stop_flag:
             try:
                 with self.microphone as source:
-                    audio = self.recognizer.listen(
-                        source, timeout=0.5)
+                    audio = self.recognizer.listen(source, timeout=0.5)
 
                 text = self.recognizer.recognize_google(audio)
                 if text.strip():
@@ -330,6 +331,13 @@ class ClickableBox(QMainWindow):
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setStyleSheet(
             "background-color: rgba(0, 0, 0, 0.75); border-radius: 5px;")
+
+        # Load and set the icon
+        self.iconLabel = QLabel(self)
+        iconPixmap = QPixmap('static/eye.png')  # Path to your icon
+        self.iconLabel.setPixmap(iconPixmap.scaled(25, 25))  # Scale as needed
+        self.iconLabel.setAlignment(Qt.AlignCenter)
+        self.iconLabel.setGeometry(0, 1, 25, 25)  # Adjust geometry as needed
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -370,6 +378,7 @@ class VirtualAssistant(QMainWindow):
         self.blinkingIndex = 0
         self.noTtsMode = False
         self.isAppVisible = True
+        self.liveMode = False
 
         # Initialize and connect the ClickableBox
         self.clickableBox = ClickableBox(self)
@@ -505,7 +514,10 @@ class VirtualAssistant(QMainWindow):
         self.chatBox.setFocus()
         self.chatBox.returnPressed.connect(self.processChatboxCommand)
 
-        self.currentPromptType = self.loadConfig()
+        # Reset prompt type to 'default' if it's 'live'
+        if self.currentPromptType == "live":
+            self.currentPromptType = "default"
+            self.saveConfig()  # Save the updated configuration
         self.createDatabase(self.currentPromptType)
         self.loadConversationHistory()
 
@@ -541,8 +553,7 @@ class VirtualAssistant(QMainWindow):
                 self.conversationHistory.append(
                     {"role": row[0], "content": row[1]})
         except sqlite3.OperationalError as e:
-            # print(f"No such table: {tableName}. Error: {e}") # Debugging message
-            # Attempt to create the table
+            # If no table exists for the current prompt type, create it
             self.createDatabase(self.currentPromptType)
 
     def switchPrompt(self, newPromptType):
@@ -636,14 +647,15 @@ class VirtualAssistant(QMainWindow):
                 self.shortcuts = config.get('shortcuts', {})
                 self.lights = config.get('lights', {})
                 self.updateSprite()
-                return config.get('promptType', 'default')
+                return self.currentPromptType
         else:
+            # Default values if config file doesn't exist
             self.currentOutfit = 'default'
             self.currentPromptType = 'default'
             self.keyword = 'hey'
             self.shortcuts = {}
             self.lights = {}
-            return self.currentPromptType
+            return config.get('promptType', 'default')
 
     def cycleOutfit(self):
         currentIndex = self.outfits.index(self.currentOutfit)
@@ -789,30 +801,34 @@ class VirtualAssistant(QMainWindow):
         self.saveConfig()
 
     def processRecognizedText(self, text):
-        # Check if the recognized text starts with the keyword
-        if text.lower().startswith(self.keyword.lower()):
-            # Remove the keyword from the text
+        # In live mode, process the entire text as is
+        if self.liveMode:
+            command = text.strip()
+        # If not in live mode, check if the text starts with the keyword and remove it
+        elif text.lower().startswith(self.keyword.lower()):
             command = text[len(self.keyword):].strip()
-
-            # Add user command to history
-            newUserEntry = {"role": "user", "content": command}
-            self.conversationHistory.append(newUserEntry)
-            self.saveConversationHistory(newUserEntry)
-
-            # Handle the command with GPT
-            self.gptWorker = GPTWorker(
-                command, self.conversationHistory, promptType=self.currentPromptType)
-            self.gptWorker.finished.connect(self.handleGptResponse)
-            self.gptWorker.start()
         else:
-            pass
+            return  # If not in live mode and text doesn't start with keyword, do nothing
+
+        # Add user command to history
+        newUserEntry = {"role": "user", "content": command}
+        self.conversationHistory.append(newUserEntry)
+        self.saveConversationHistory(newUserEntry)
+
+        self.gptWorker = GPTWorker(
+            command, self.conversationHistory, promptType=self.currentPromptType)
+        self.gptWorker.finished.connect(self.handleGptResponse)
+        self.gptWorker.start()
 
     def processVoiceCommand(self, command):
         # Check if the window is visible
         if not self.isAppVisible:
             return
-
-        self.processCommand(command)
+        if self.liveMode:
+            return
+        else:
+            self.processCommand(command)
+            return
 
     def processChatboxCommand(self):
         # Get the text from the chatbox and process it as a command
@@ -929,7 +945,7 @@ class VirtualAssistant(QMainWindow):
             self.switchPrompt(newPromptType)
             self.messageLabel.setText(f"Switched to prompt: {newPromptType}")
             self.showBubble()
-        elif command == "toggle":
+        elif command == "tts":
             self.noTtsMode = not self.noTtsMode  # Toggle the TTS mode
             response = "TTS Mode Disabled" if self.noTtsMode else "TTS Mode Enabled"
             self.messageLabel.setText(response)
@@ -938,8 +954,8 @@ class VirtualAssistant(QMainWindow):
             helpMessage = self.getHelpMessage()
             self.messageLabel.setText(helpMessage)
             self.showBubble()
-        elif command.startswith("play "):
-            songName = command[len("play "):].strip()
+        elif command.startswith("put on "):
+            songName = command[len("put on "):].strip()
             self.messageLabel.setText(queueSong(songName))
             self.showBubble()
         elif command in self.shortcuts:
@@ -1009,6 +1025,8 @@ class VirtualAssistant(QMainWindow):
             self.updateKeyword(newKeyword)
             self.messageLabel.setText(f"Keyword set to: {newKeyword}")
             self.showBubble()
+        elif command == "live mode":
+            self.toggleLiveMode()
 
         # Check if the command starts with the prefix
         if command.lower().startswith(prefix.lower()):
@@ -1032,6 +1050,7 @@ class VirtualAssistant(QMainWindow):
         self.conversationHistory.append(newAssistantEntry)
         self.saveConversationHistory(newAssistantEntry)
 
+        # Check if the response is more than just a space
         if gptResponse.startswith('[') and ']' in gptResponse:
             endBracketIndex = gptResponse.find(']')
             expression = gptResponse[1:endBracketIndex].strip().lower()
@@ -1039,14 +1058,14 @@ class VirtualAssistant(QMainWindow):
 
             if expression in self.expressions:
                 self.changeExpression(expression)
-            else:
-                message = gptResponse  # Use the original message if expression is not valid
-        else:
-            message = gptResponse  # Use the original message if no expression is found
 
-        self.startTTS(message)
-        self.showBubble()
-        self.messageLabel.setText(message)
+            # Proceed with handling the response including TTS
+            self.startTTS(message)
+            self.showBubble()
+            self.messageLabel.setText(message)
+        else:
+            # print("No response from GPT.")
+            return
 
     def showBubble(self):
         self.speechBubbleItem.setVisible(True)
@@ -1054,7 +1073,8 @@ class VirtualAssistant(QMainWindow):
         self.chatBox.clear()
 
     def startTTS(self, text):
-        if not self.noTtsMode:
+        # Only start TTS if the text is substantial enough
+        if text.strip() and not self.noTtsMode:
             self.ttsWorker = TTSWorker([text])  # Pass the text as a list
             self.ttsWorker.start()
 
@@ -1069,6 +1089,22 @@ class VirtualAssistant(QMainWindow):
         self.messageLabel.setText(error_message)
         self.downloadThread.quit()
         self.downloadThread.wait()
+
+    def toggleLiveMode(self):
+        self.liveMode = not self.liveMode
+        if self.liveMode:
+            self.currentPromptType = "live"
+            self.loadConversationHistory()  # Load live mode conversation history
+            self.messageLabel.setText(
+                "Live mode enabled. Voice commands disabled.")
+        else:
+            self.currentPromptType = "default"  # Switch back to your default prompt
+            self.loadConversationHistory()  # Load default conversation history
+            self.messageLabel.setText(
+                "Live mode disabled. Voice commands enabled.")
+        self.showBubble()
+        self.saveConfig()  # Save the new state
+
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
