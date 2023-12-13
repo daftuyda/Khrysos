@@ -279,14 +279,14 @@ class ContinuousSpeechRecognition(QThread):
 
     def run(self):
         with self.microphone as source:
-            self.recognizer.adjust_for_ambient_noise(source, duration=1)
+            self.recognizer.adjust_for_ambient_noise(source, duration=1.5)
             self.recognizer.dynamic_energy_threshold = False
             self.recognizer.energy_threshold = 600
 
         while not self.stop_flag:
             try:
                 with self.microphone as source:
-                    audio = self.recognizer.listen(source, timeout=2)
+                    audio = self.recognizer.listen(source, timeout=1)
 
                 text = self.recognizer.recognize_google(audio)
                 if text.strip():
@@ -763,7 +763,7 @@ class VirtualAssistant(QMainWindow):
 
     def processRecognizedText(self, text):
         # Define the keyword or phrase to trigger GPT response
-        keyword = "yuki"
+        keyword = "hey"
 
         # Check if the recognized text starts with the keyword
         if text.lower().startswith(keyword.lower()):
@@ -784,10 +784,18 @@ class VirtualAssistant(QMainWindow):
             pass
 
     def processVoiceCommand(self, command):
+        # Check if the window is visible
+        if not self.isVisible():
+            return  # Do not process commands if the window is hidden
+
         # Process the command received from speech recognition
         self.processCommand(command)
 
     def processChatboxCommand(self):
+        # Check if the window is visible
+        if not self.isVisible():
+            return  # Do not process commands if the window is hidden
+
         # Get the text from the chatbox and process it as a command
         command = self.chatBox.text()
         self.processCommand(command)
