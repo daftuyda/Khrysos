@@ -8,7 +8,7 @@ import requests
 import keyboard
 import sympy
 import spotipy
-from gpt4all import GPT4All
+from ctransformers import AutoModelForCausalLM
 import speech_recognition as sr
 from spotipy.oauth2 import SpotifyOAuth
 from pytube import YouTube
@@ -224,8 +224,8 @@ class LocalGPTWorker(QThread):
         self.promptType = promptType
         self.systemPrompts = self.loadSystemPrompts()
         # Load your local model here (adjust the path and model name as needed)
-        self.model = GPT4All(
-            model_name="mistral-7b-openorca.Q4_0.gguf")
+        self.model = AutoModelForCausalLM.from_pretrained(
+            "TheBloke/Mistral-7B-OpenOrca-GGUF", model_file="mistral-7b-openorca.Q4_K_M.gguf", model_type="mistral", gpu_layers=50)
 
     @staticmethod
     def loadSystemPrompts():
@@ -252,8 +252,8 @@ class LocalGPTWorker(QThread):
 
             # Generate a response using the local model
             prompt = self.systemPrompt + prompt_template.format(prompt)
-            response = self.model.generate(
-                prompt, max_tokens=1024, temp=0.7, top_p=0.4, top_k=40, repeat_penalty=1.18, repeat_last_n=64, n_batch=128)
+            response = self.model(
+                prompt, max_new_tokens=1024, temperature=0.7, top_p=0.4, top_k=40, repetition_penalty=1.18, last_n_tokens=64, batch_size=128)
             assistantMessage = response.strip()
 
             # Emit the signal with the generated response
