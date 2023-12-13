@@ -224,8 +224,15 @@ class LocalGPTWorker(QThread):
         self.promptType = promptType
         self.systemPrompts = self.loadSystemPrompts()
         # Load your local model here (adjust the path and model name as needed)
-        self.model = AutoModelForCausalLM.from_pretrained(
-            "TheBloke/Mistral-7B-OpenOrca-GGUF", model_file="mistral-7b-openorca.Q4_K_M.gguf", model_type="mistral", gpu_layers=50)
+        self.model = None  # Initialize model to None
+
+    def initModel(self):
+        if not self.model:
+            self.model = AutoModelForCausalLM.from_pretrained(
+                "TheBloke/Mistral-7B-OpenOrca-GGUF",
+                model_file="mistral-7b-openorca.Q4_K_M.gguf",
+                model_type="mistral",
+                gpu_layers=50)
 
     @staticmethod
     def loadSystemPrompts():
@@ -241,19 +248,20 @@ class LocalGPTWorker(QThread):
 
     def run(self):
         try:
+            self.initModel()
             # Process the conversation history and the new message
             history = "\n".join([entry['content']
                                 for entry in self.conversationHistory])
             prompt = f"{history}\n{self.message}"
 
             self.systemPrompt = self.systemPrompts.get(
-                self.promptType, "default") + "(With each response add an expression from 'Normal, Surprised, Love, Happy, Confused, Angry' to the start of the message in square brackets, use the often and don't use the same one more than twice in a row.) Keep messages to a 110 character limit if possible."
+                self.promptType, "default") + "(With each response add an expression from 'Normal, Surprised, Love, Happy, Confused, Angry' to the start of the message in square brackets, use the often and don't use the same one more than twice in a row.) Keep messages to a 110 character limit if possible. Never use emojis in your reponses."
             prompt_template = 'USER: {0}\nASSISTANT: '
 
             # Generate a response using the local model
             prompt = self.systemPrompt + prompt_template.format(prompt)
             response = self.model(
-                prompt, max_new_tokens=1024, temperature=0.7, top_p=0.4, top_k=40, repetition_penalty=1.18, last_n_tokens=64, batch_size=128)
+                prompt, max_new_tokens=4096, temperature=0.7, top_p=0.4, top_k=40, repetition_penalty=1.18, last_n_tokens=64, batch_size=128)
             assistantMessage = response.strip()
 
             # Emit the signal with the generated response
