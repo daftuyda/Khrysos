@@ -287,7 +287,7 @@ class ContinuousSpeechRecognition(QThread):
             try:
                 with self.microphone as source:
                     audio = self.recognizer.listen(
-                        source, timeout=0.5, phrase_time_limit=3)
+                        source, timeout=0.5)
 
                 text = self.recognizer.recognize_google(audio)
                 if text.strip():
@@ -607,6 +607,7 @@ class VirtualAssistant(QMainWindow):
         config = {
             'outfit': self.currentOutfit,
             'promptType': self.currentPromptType,
+            'keyword': self.keyword,
             'shortcuts': self.shortcuts,
             'lights': self.lights
         }
@@ -619,6 +620,7 @@ class VirtualAssistant(QMainWindow):
                 config = json.load(f)
                 self.currentOutfit = config.get('outfit', 'default')
                 self.currentPromptType = config.get('promptType', 'default')
+                self.keyword = config.get('keyword', 'hey')
                 self.shortcuts = config.get('shortcuts', {})
                 self.lights = config.get('lights', {})
                 self.updateSprite()
@@ -626,6 +628,7 @@ class VirtualAssistant(QMainWindow):
         else:
             self.currentOutfit = 'default'
             self.currentPromptType = 'default'
+            self.keyword = 'hey'
             self.shortcuts = {}
             self.lights = {}
             return self.currentPromptType
@@ -763,14 +766,15 @@ class VirtualAssistant(QMainWindow):
         except KeyError:
             return "Error: Could not parse weather data."
 
-    def processRecognizedText(self, text):
-        # Define the keyword or phrase to trigger GPT response
-        keyword = "hey"
+    def updateKeyword(self, newKeyword):
+        self.keyword = newKeyword
+        self.saveConfig()
 
+    def processRecognizedText(self, text):
         # Check if the recognized text starts with the keyword
-        if text.lower().startswith(keyword.lower()):
+        if text.lower().startswith(self.keyword.lower()):
             # Remove the keyword from the text
-            command = text[len(keyword):].strip()
+            command = text[len(self.keyword):].strip()
 
             # Add user command to history
             newUserEntry = {"role": "user", "content": command}
@@ -974,6 +978,11 @@ class VirtualAssistant(QMainWindow):
             else:
                 self.speech_recognition_thread.startRecognition()
                 self.messageLabel.setText("Speech recognition turned on.")
+            self.showBubble()
+        elif command.startswith("keyword "):
+            newKeyword = command[len("keyword "):].strip()
+            self.updateKeyword(newKeyword)
+            self.messageLabel.setText(f"Keyword set to: {newKeyword}")
             self.showBubble()
 
         # Check if the command starts with the prefix
