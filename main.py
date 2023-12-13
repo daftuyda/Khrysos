@@ -418,6 +418,11 @@ class VirtualAssistant(QMainWindow):
         self.blinkTimer.timeout.connect(self.blink)
         self.blinkTimer.start(blinkTimer)
 
+        # Timer for resetting expression
+        self.resetExpressionTimer = QTimer(self)
+        self.resetExpressionTimer.timeout.connect(self.resetExpression)
+        self.resetExpressionDuration = 15000
+
         # Timer for blinking animation frames
         self.blinkFrameTimer = QTimer(self)
         self.blinkFrameTimer.timeout.connect(self.blinkFrame)
@@ -648,9 +653,15 @@ class VirtualAssistant(QMainWindow):
         self.saveConfig()
 
     def changeExpression(self, newExpression):
-        if newExpression in self.expressions:
+        if newExpression in self.expressions and newExpression != self.currentExpression:
             self.currentExpression = newExpression
             self.updateSprite()
+            if newExpression != 'normal':  # Assuming 'normal' is your default expression
+                self.resetExpressionTimer.start(self.resetExpressionDuration)
+
+    def resetExpression(self):
+        self.changeExpression('normal')  # Reset to default expression
+        self.resetExpressionTimer.stop()  # Stop the timer
 
     def updateSprite(self):
         newPixmap = self.sprites[self.currentOutfit][self.currentExpression]
