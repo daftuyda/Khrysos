@@ -396,6 +396,9 @@ class ContinuousSpeechRecognition(QThread):
 
                     self.last_audio_time = time()
 
+                if self.stop_flag:  # Check the flag at appropriate places
+                    break
+
                 sleep(0.1)  # Sleep to prevent high CPU usage
 
             except Queue.Empty:
@@ -413,12 +416,6 @@ class ContinuousSpeechRecognition(QThread):
 
     def stopRecognition(self):
         self.stop_flag = True
-        self.wait()  # Wait for the thread to finish
-
-    def cleanUp(self):
-        if self.isRunning():
-            self.stopRecognition()
-            self.terminate()  # Forcefully terminate the thread if it's still running
 
 
 class ClickableBox(QMainWindow):
@@ -689,7 +686,7 @@ class VirtualAssistant(QMainWindow):
         # Terminate the speech recognition thread
         if hasattr(self, 'speech_recognition_thread') and self.speech_recognition_thread.isRunning():
             self.speech_recognition_thread.stopRecognition()
-            self.speech_recognition_thread.cleanUp()
+            self.speech_recognition_thread.wait()  # Wait for the thread to finish
 
         # Terminate the TTSWorker process
         if hasattr(self, 'ttsWorker') and self.ttsWorker.isRunning():
