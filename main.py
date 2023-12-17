@@ -352,7 +352,7 @@ class ContinuousSpeechRecognition(QThread):
         self.data_queue = Queue()
         self.model = whisper.load_model("base")
         self.record_timeout = 0
-        self.phrase_timeout = 0.5
+        self.phrase_timeout = 1.5
         self.last_audio_time = time()
 
         # Adjust for ambient noise
@@ -375,8 +375,11 @@ class ContinuousSpeechRecognition(QThread):
                 if not self.data_queue.empty() or current_time - self.last_audio_time >= self.phrase_timeout:
                     audio_data = bytearray()
                     while not self.data_queue.empty():
-                        data = self.data_queue.get()
+                        # Set a timeout for getting data
+                        data = self.data_queue.get(timeout=1)
                         audio_data.extend(data)
+                        if self.stop_flag:  # Check the flag after the blocking call
+                            return  # Exit the loop if stop_flag is set
 
                     if audio_data:
                         audio_np = np.frombuffer(
@@ -391,12 +394,12 @@ class ContinuousSpeechRecognition(QThread):
                             self.recognizedText.emit(text)
                             self.recognizedCommand.emit(text)
 
-                    # Reset the last audio time if audio was processed
-                    if not self.data_queue.empty():
-                        self.last_audio_time = time()
+                    self.last_audio_time = time()
 
-                sleep(0.25)
+                sleep(0.1)  # Sleep to prevent high CPU usage
 
+            except Queue.Empty:
+                pass  # Continue the loop if no data is available
             except sr.WaitTimeoutError:
                 pass
             except sr.UnknownValueError:
@@ -684,7 +687,8 @@ class VirtualAssistant(QMainWindow):
 
     def forceCloseApplication(self):
         # Terminate the speech recognition thread
-        if hasattr(self, 'speech_recognition_thread'):
+        if hasattr(self, 'speech_recognition_thread') and self.speech_recognition_thread.isRunning():
+            self.speech_recognition_thread.stopRecognition()
             self.speech_recognition_thread.cleanUp()
 
         # Terminate the TTSWorker process
