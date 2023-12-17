@@ -13,15 +13,13 @@ import string
 import time
 import socket
 import re
+import subprocess
 import numpy as np
 import speech_recognition as sr
-from emoji import demojize
 from queue import Queue
 from ctransformers import AutoModelForCausalLM
 from spotipy.oauth2 import SpotifyOAuth
 from pytube import YouTube
-from multiprocessing import Process, Queue
-from elevenlabs import generate, play, Voice, VoiceSettings, set_api_key
 from ctypes import cast, POINTER
 from comtypes import CLSCTX_ALL
 from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume, ISimpleAudioVolume
@@ -170,36 +168,16 @@ def calculateExpr(expression):
         return f"Error: {str(e)}"
 
 
-def get_weather(cityName, api_key):
+def get_weather(cityName):
     base_url = "http://api.openweathermap.org/data/2.5/weather?"
-    complete_url = f"{base_url}appid={api_key}&q={cityName}"
+    complete_url = f"{base_url}appid={openWeatherKey}&q={cityName}"
     response = requests.get(complete_url)
     return response.json()
 
 
-def ttsTask(texts, apiKey, queue):
-    try:
-        set_api_key(apiKey)
-        for text in texts:
-            audio = generate(
-                text=text,
-                voice=Voice(
-                    voice_id='EqudVpb9UKv174PwNcST',
-                    settings=VoiceSettings(
-                        stability=0.25, similarity_boost=0.3, style=0.0, use_speaker_boost=True)
-                ),
-                model="eleven_turbo_v2"
-            )
-            play(audio)
-
-    except Exception as e:
-        queue.put(str(e))
-    finally:
-        queue.put("done")
-
-
 openAiKey = os.getenv('OPENAI_API_KEY')
 oClient = OpenAI(api_key=openAiKey)
+elevenApi = os.getenv('ELEVENLABS_API_KEY')
 
 
 class DownloadWorker(QObject):
@@ -329,23 +307,52 @@ class GPTWorker(QThread):
             self.finished.emit(str(e))
 
 
-class TTSWorker:
-    def __init__(self, texts):
-        self.texts = texts
-        self.apiKey = os.getenv('ELEVENLABS_API_KEY')
-        self.queue = Queue()
+class TTSWorker(QThread):
+    finished = pyqtSignal(str)
 
-    def start(self):
-        self.process = Process(target=ttsTask, args=(
-            self.texts, self.apiKey, self.queue))  # Pass the list of texts here
-        self.process.start()
+    def __init__(self, text):
+        super(TTSWorker, self).__init__()
+        self.text = text
+        self.apiKey = elevenApi
 
-    def isRunning(self):
-        return self.process.is_alive()
+    def run(self):
+        try:
+            voiceId = 'WkjghqT4Y4l9wvVntXxb'
+            url = f'https://api.elevenlabs.io/v1/text-to-speech/{voiceId}/stream'
+            headers = {
+                'accept': '*/*',
+                'xi-api-key': self.apiKey,
+                'Content-Type': 'application/json'
+            }
+            data = {
+                'text': self.text,
+                'voice_settings': {
+                    'stability': 0.3,
+                    'similarity_boost': 0.30
+                }
+            }
 
-    def terminate(self):
-        if self.isRunning():
-            self.process.terminate()
+            response = requests.post(
+                url, headers=headers, json=data, stream=True)
+            response.raise_for_status()
+
+            # Configure subprocess to hide the window
+            SW_HIDE = 0
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = SW_HIDE
+
+            # Command to run ffplay
+            ffplayCmd = ['ffplay', '-autoexit', '-']
+
+            # Start the ffplay subprocess
+            with subprocess.Popen(ffplayCmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, startupinfo=startupinfo) as ffplayProc:
+                for chunk in response.iter_content(chunk_size=4096):
+                    ffplayProc.stdin.write(chunk)
+                ffplayProc.stdin.close()
+                ffplayProc.wait()
+        except Exception as e:
+            return (f"Error: {str(e)}")
 
 
 class ContinuousSpeechRecognition(QThread):
@@ -747,11 +754,6 @@ class VirtualAssistant(QMainWindow):
         if hasattr(self, 'speechRecognitionThread'):
             self.speechRecognitionThread.stopRecognition()
             self.speechRecognitionThread.wait()
-
-        # Terminate the TTSWorker process
-        if hasattr(self, 'ttsWorker'):
-            self.ttsWorker.terminate()
-            self.ttsWorker.process.join()
 
         # Terminate the GPTWorker thread
         if hasattr(self, 'gptWorker'):
@@ -1239,7 +1241,7 @@ class VirtualAssistant(QMainWindow):
             self.showBubble()
         elif command.startswith("weather "):
             cityName = command[len("weather "):].strip()
-            weatherData = get_weather(cityName, openWeatherKey)
+            weatherData = get_weather(cityName)
             # Parse and format the weatherData as needed
             self.messageLabel.setText(self.formatWeatherData(weatherData))
             self.showBubble()
@@ -1321,10 +1323,8 @@ class VirtualAssistant(QMainWindow):
         self.chatBox.clear()
 
     def startTTS(self, text):
-        # Only start TTS if the text is substantial enough
-        if text.strip() and not self.noTtsMode:
-            self.ttsWorker = TTSWorker([text])  # Pass the text as a list
-            self.ttsWorker.start()
+        self.ttsWorker = TTSWorker(text)
+        self.ttsWorker.start()
 
     def onDownloadFinished(self, message):
         # Update the UI with the success message
