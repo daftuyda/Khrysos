@@ -348,12 +348,12 @@ class ContinuousSpeechRecognition(QThread):
         super(ContinuousSpeechRecognition, self).__init__()
         self.recognizer = sr.Recognizer()
         self.microphone = sr.Microphone(sample_rate=16000)
-        self.stop_flag = False
-        self.data_queue = Queue()
+        self.stopFlag = False
+        self.dataQueue = Queue()
         self.model = whisper.load_model("base")
-        self.record_timeout = 0
-        self.phrase_timeout = 1.5
-        self.last_audio_time = time()
+        self.recordTimeout = 0
+        self.phraseTimeout = 1.5
+        self.lastAudioTime = time()
 
         # Adjust for ambient noise
         with self.microphone as source:
@@ -363,30 +363,30 @@ class ContinuousSpeechRecognition(QThread):
 
     def record_callback(self, _, audio: sr.AudioData):
         data = audio.get_raw_data()
-        self.data_queue.put(data)
+        self.dataQueue.put(data)
 
     def run(self):
         self.recognizer.listen_in_background(
-            self.microphone, self.record_callback, phrase_time_limit=self.record_timeout)
+            self.microphone, self.record_callback, phrase_time_limit=self.recordTimeout)
 
-        while not self.stop_flag:
+        while not self.stopFlag:
             try:
-                current_time = time()
-                if not self.data_queue.empty() or current_time - self.last_audio_time >= self.phrase_timeout:
-                    audio_data = bytearray()
-                    while not self.data_queue.empty():
+                currentTime = time()
+                if not self.dataQueue.empty() or currentTime - self.lastAudioTime >= self.phraseTimeout:
+                    audioData = bytearray()
+                    while not self.dataQueue.empty():
                         # Set a timeout for getting data
-                        data = self.data_queue.get(timeout=1)
-                        audio_data.extend(data)
-                        if self.stop_flag:  # Check the flag after the blocking call
-                            return  # Exit the loop if stop_flag is set
+                        data = self.dataQueue.get(timeout=1)
+                        audioData.extend(data)
+                        if self.stopFlag:  # Check the flag after the blocking call
+                            return  # Exit the loop if stopFlag is set
 
-                    if audio_data:
-                        audio_np = np.frombuffer(
-                            audio_data, dtype=np.int16).astype(np.float32) / 32768.0
+                    if audioData:
+                        audioNp = np.frombuffer(
+                            audioData, dtype=np.int16).astype(np.float32) / 32768.0
 
                         result = self.model.transcribe(
-                            audio_np, fp16=torch.cuda.is_available())
+                            audioNp, fp16=torch.cuda.is_available())
                         text = result['text'].strip()
 
                         if text:
@@ -394,9 +394,9 @@ class ContinuousSpeechRecognition(QThread):
                             self.recognizedText.emit(text)
                             self.recognizedCommand.emit(text)
 
-                    self.last_audio_time = time()
+                    self.lastAudioTime = time()
 
-                if self.stop_flag:  # Check the flag at appropriate places
+                if self.stopFlag:  # Check the flag at appropriate places
                     break
 
                 sleep(0.1)  # Sleep to prevent high CPU usage
@@ -411,11 +411,11 @@ class ContinuousSpeechRecognition(QThread):
                 pass
 
     def startRecognition(self):
-        self.stop_flag = False
+        self.stopFlag = False
         self.start()
 
     def stopRecognition(self):
-        self.stop_flag = True
+        self.stopFlag = True
 
 
 class ClickableBox(QMainWindow):
@@ -457,12 +457,12 @@ class VirtualAssistant(QMainWindow):
     def __init__(self, blinkSpeed=35, blinkTimer=4000, bubbleTimerDuration=10000):
         super().__init__()
 
-        self.speech_recognition_thread = ContinuousSpeechRecognition()
-        self.speech_recognition_thread.recognizedText.connect(
+        self.speechRecognitionThread = ContinuousSpeechRecognition()
+        self.speechRecognitionThread.recognizedText.connect(
             self.processRecognizedText)
-        self.speech_recognition_thread.recognizedCommand.connect(
+        self.speechRecognitionThread.recognizedCommand.connect(
             self.processVoiceCommand)
-        self.speech_recognition_thread.start()
+        self.speechRecognitionThread.start()
 
         self.dbConnection = sqlite3.connect('conversationHistory.db')
         self.dbCursor = self.dbConnection.cursor()
@@ -625,7 +625,7 @@ class VirtualAssistant(QMainWindow):
                                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
                                     role TEXT,
                                     content TEXT,
-                                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+                                    timestamp DATETIME DEFAULT currentTimeSTAMP)''')
             self.dbConnection.commit()
         except sqlite3.Error as e:
             # Debugging message
@@ -684,9 +684,9 @@ class VirtualAssistant(QMainWindow):
 
     def forceCloseApplication(self):
         # Terminate the speech recognition thread
-        if hasattr(self, 'speech_recognition_thread') and self.speech_recognition_thread.isRunning():
-            self.speech_recognition_thread.stopRecognition()
-            self.speech_recognition_thread.wait()  # Wait for the thread to finish
+        if hasattr(self, 'speechRecognitionThread') and self.speechRecognitionThread.isRunning():
+            self.speechRecognitionThread.stopRecognition()
+            self.speechRecognitionThread.wait()  # Wait for the thread to finish
 
         # Terminate the TTSWorker process
         if hasattr(self, 'ttsWorker') and self.ttsWorker.isRunning():
@@ -1067,8 +1067,8 @@ class VirtualAssistant(QMainWindow):
             helpMessage = self.getHelpMessage()
             self.messageLabel.setText(helpMessage)
             self.showBubble()
-        elif command.startswith("put on "):
-            songName = command[len("put on "):].strip()
+        elif command.startswith("play ") or command.startswith("queue "):
+            songName = command[5:].strip()
             self.messageLabel.setText(queueSong(songName))
             self.showBubble()
         elif command in self.shortcuts:
@@ -1126,11 +1126,11 @@ class VirtualAssistant(QMainWindow):
             self.messageLabel.setText(self.formatWeatherData(weatherData))
             self.showBubble()
         elif command == "stt":
-            if self.speech_recognition_thread.isRunning():
-                self.speech_recognition_thread.stopRecognition()
+            if self.speechRecognitionThread.isRunning():
+                self.speechRecognitionThread.stopRecognition()
                 self.messageLabel.setText("Speech recognition turned off.")
             else:
-                self.speech_recognition_thread.startRecognition()
+                self.speechRecognitionThread.startRecognition()
                 self.messageLabel.setText("Speech recognition turned on.")
             self.showBubble()
         elif command.startswith("keyword "):
