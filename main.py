@@ -9,9 +9,13 @@ import sympy
 import spotipy
 import whisper
 import torch
+import string
+import time
+import socket
+import re
 import numpy as np
 import speech_recognition as sr
-from time import sleep, time
+from emoji import demojize
 from queue import Queue
 from ctransformers import AutoModelForCausalLM
 from spotipy.oauth2 import SpotifyOAuth
@@ -44,6 +48,9 @@ sp = spotipy.Spotify(auth_manager=SpotifyOAuth(client_id=clientId,
                                                client_secret=secretId,
                                                redirect_uri=redirectUri,
                                                scope=scope))
+
+
+twitchToken = redirectUri = os.getenv('twitch_oauth')
 
 
 def searchAndPlay(songName):
@@ -192,7 +199,7 @@ def ttsTask(texts, apiKey, queue):
 
 
 openAiKey = os.getenv('OPENAI_API_KEY')
-client = OpenAI(api_key=openAiKey)
+oClient = OpenAI(api_key=openAiKey)
 
 
 class DownloadWorker(QObject):
@@ -278,14 +285,15 @@ class LocalGPTWorker(QThread):
 
 
 class GPTWorker(QThread):
-    finished = pyqtSignal(str)
+    finished = pyqtSignal(str, bool)
 
-    def __init__(self, message, conversationHistory, promptType="default"):
+    def __init__(self, message, conversationHistory, promptType="default", isTwitchChat=False):
         super().__init__()
         self.message = message
         self.conversationHistory = conversationHistory
         self.promptType = promptType
         self.systemPrompts = self.loadSystemPrompts()
+        self.isTwitchChat = isTwitchChat
 
     @staticmethod
     def loadSystemPrompts():
@@ -305,18 +313,18 @@ class GPTWorker(QThread):
                 self.promptType, "default")
             messages = [
                 {"role": "system", "content": systemPrompt +
-                    """(With each response add an expression from 'Normal, Surprised, Love, Happy, Confused, Angry' to the start of the message in square brackets, use the often and don't use the same one more than twice in a row.) Keep messages to a 110 character limit if possible."""}
+                    """(With each response add an expression from 'Normal, Surprised, Love, Happy, Confused, Angry' to the start of the message in square brackets, use the often and don't use the same one more than twice in a row.) Keep responses down to 150 tokens."""}
             ]
             messages += self.conversationHistory
             messages.append({"role": "user", "content": self.message})
 
-            response = client.chat.completions.create(
+            response = oClient.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=messages
             )
 
             assistantMessage = response.choices[0].message.content.strip()
-            self.finished.emit(assistantMessage)
+            self.finished.emit(assistantMessage, self.isTwitchChat)
         except Exception as e:
             self.finished.emit(str(e))
 
@@ -352,8 +360,8 @@ class ContinuousSpeechRecognition(QThread):
         self.dataQueue = Queue()
         self.model = whisper.load_model("base")
         self.recordTimeout = 0
-        self.phraseTimeout = 1.5
-        self.lastAudioTime = time()
+        self.phraseTimeout = 0.75
+        self.lastAudioTime = time.time()
 
         # Adjust for ambient noise
         with self.microphone as source:
@@ -371,7 +379,7 @@ class ContinuousSpeechRecognition(QThread):
 
         while not self.stopFlag:
             try:
-                currentTime = time()
+                currentTime = time.time()
                 if not self.dataQueue.empty() or currentTime - self.lastAudioTime >= self.phraseTimeout:
                     audioData = bytearray()
                     while not self.dataQueue.empty():
@@ -394,12 +402,12 @@ class ContinuousSpeechRecognition(QThread):
                             self.recognizedText.emit(text)
                             self.recognizedCommand.emit(text)
 
-                    self.lastAudioTime = time()
+                    self.lastAudioTime = time.time()
 
                 if self.stopFlag:  # Check the flag at appropriate places
                     break
 
-                sleep(0.1)  # Sleep to prevent high CPU usage
+                time.sleep(0.25)  # Sleep to prevent high CPU usage
 
             except Queue.Empty:
                 pass  # Continue the loop if no data is available
@@ -416,6 +424,46 @@ class ContinuousSpeechRecognition(QThread):
 
     def stopRecognition(self):
         self.stopFlag = True
+
+
+class TwitchChatHandler(QThread):
+    received_message = pyqtSignal(str)
+
+    def __init__(self, nickname, channel):
+        super(TwitchChatHandler, self).__init__()
+        self.nickname = nickname
+        self.channel = channel
+        self.token = os.getenv("twitch_oauth")
+        self.stop_flag = False
+
+    def run(self):
+        with socket.socket() as sock:
+            sock.connect(("irc.chat.twitch.tv", 6667))
+            sock.send(f"PASS {self.token}\n".encode("utf-8"))
+            sock.send(f"NICK {self.nickname}\n".encode("utf-8"))
+            sock.send(f"JOIN {self.channel}\n".encode("utf-8"))
+
+            regex = r":(\w+)!\w+@\w+\.tmi\.twitch\.tv PRIVMSG #\w+ :(.+)"
+
+            while not self.stop_flag:
+                try:
+                    resp = sock.recv(2048).decode("utf-8")
+                    if resp.startswith("PING"):
+                        sock.send("PONG\n".encode("utf-8"))
+
+                    match = re.match(regex, resp)
+
+                    if match:
+                        username, message = match.groups()
+                        chat = f"{username}: {message}"
+                        self.received_message.emit(chat)
+
+                except Exception as e:
+                    return (e)
+                    break
+
+    def stop(self):
+        self.stop_flag = True
 
 
 class ClickableBox(QMainWindow):
@@ -476,6 +524,7 @@ class VirtualAssistant(QMainWindow):
         self.isAppVisible = True
         self.liveMode = False
         self.useLocalGPT = False
+        self.handleTwitchChat = False
 
         # Initialize and connect the ClickableBox
         self.clickableBox = ClickableBox(self)
@@ -625,11 +674,22 @@ class VirtualAssistant(QMainWindow):
                                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
                                     role TEXT,
                                     content TEXT,
-                                    timestamp DATETIME DEFAULT currentTimeSTAMP)''')
+                                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
             self.dbConnection.commit()
         except sqlite3.Error as e:
-            # Debugging message
             return (f"An error occurred while creating the table: {e}")
+
+    def createTwitchChatTable(self):
+        tableName = 'twitch_chat'
+        try:
+            self.dbCursor.execute(f'''CREATE TABLE IF NOT EXISTS {tableName}
+                                    (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                    role TEXT,
+                                    content TEXT,
+                                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+            self.dbConnection.commit()
+        except sqlite3.Error as e:
+            return (f"Error: {e}")
 
     def saveConversationHistory(self, entry=None):
         tableName = f'history_{self.currentPromptType}'
@@ -684,22 +744,22 @@ class VirtualAssistant(QMainWindow):
 
     def forceCloseApplication(self):
         # Terminate the speech recognition thread
-        if hasattr(self, 'speechRecognitionThread') and self.speechRecognitionThread.isRunning():
+        if hasattr(self, 'speechRecognitionThread'):
             self.speechRecognitionThread.stopRecognition()
-            self.speechRecognitionThread.wait()  # Wait for the thread to finish
+            self.speechRecognitionThread.wait()
 
         # Terminate the TTSWorker process
-        if hasattr(self, 'ttsWorker') and self.ttsWorker.isRunning():
+        if hasattr(self, 'ttsWorker'):
             self.ttsWorker.terminate()
             self.ttsWorker.process.join()
 
         # Terminate the GPTWorker thread
-        if hasattr(self, 'gptWorker') and self.gptWorker.isRunning():
+        if hasattr(self, 'gptWorker'):
             self.gptWorker.terminate()
             self.gptWorker.wait()
 
         # Terminate the LocalGPTWorker thread
-        if hasattr(self, 'localGptWorker') and self.localGptWorker.isRunning():
+        if hasattr(self, 'localGptWorker'):
             self.localGptWorker.terminate()
             self.localGptWorker.wait()
 
@@ -707,8 +767,9 @@ class VirtualAssistant(QMainWindow):
         if hasattr(self, 'dbConnection'):
             self.dbConnection.close()
 
-        # Close the application
-        self.close()
+        if hasattr(self, 'TwitchChatHandler'):
+            self.twitchChatHandler.stop()
+            self.twitchChatHandler.wait()
 
     def initSpriteItem(self):
         initialPixmap = self.sprites[self.currentOutfit][self.currentExpression]
@@ -897,6 +958,40 @@ class VirtualAssistant(QMainWindow):
         except KeyError:
             return "Error: Could not parse weather data."
 
+    def setupTwitchChat(self):
+        self.twitchChatHandler = TwitchChatHandler("Shift8Void", "#Shift8Void")
+        self.twitchChatHandler.received_message.connect(
+            self.handleTwitchMessage)
+        self.twitchChatHandler.start()
+
+    def handleTwitchMessage(self, message):
+        # print(message)
+        if self.handleTwitchChat:
+            self.processTwitchChat(message)
+        else:
+            pass
+
+    def saveTwitchChatHistory(self, entry):
+        tableName = 'twitch_chat'
+        # Insert the entry into the Twitch chat history table
+        try:
+            self.dbCursor.execute(f"INSERT INTO {tableName} (role, content) VALUES (?, ?)",
+                                  (entry['role'], entry['content']))
+            self.dbConnection.commit()
+        except sqlite3.Error as e:
+            return (f"Error: {e}")
+
+    def loadTwitchChatHistory(self):
+        twitchChatHistory = []
+        tableName = 'twitch_chat'
+        try:
+            for row in self.dbCursor.execute(f"SELECT role, content FROM {tableName} ORDER BY timestamp"):
+                twitchChatHistory.append({"role": row[0], "content": row[1]})
+        except sqlite3.OperationalError as e:
+            # If no table exists for Twitch chat history, create it
+            self.createTwitchChatTable()
+        return twitchChatHistory
+
     def updateKeyword(self, newKeyword):
         self.keyword = newKeyword
         self.saveConfig()
@@ -906,6 +1001,19 @@ class VirtualAssistant(QMainWindow):
         workerType = "Local GPT" if self.useLocalGPT else "GPT"
         self.messageLabel.setText(f"Switched to {workerType} Worker")
         self.showBubble()
+
+    def processTwitchChat(self, text):
+        message = text.strip()
+
+        # Add user command to history
+        twitchChatHistory = self.loadTwitchChatHistory()
+        twitchChatHistory.append({"role": "user", "content": message})
+        self.saveTwitchChatHistory({"role": "user", "content": message})
+
+        self.gptWorker = GPTWorker(
+            message, twitchChatHistory, promptType='twitch', isTwitchChat=True)
+        self.gptWorker.finished.connect(self.handleGptResponse)
+        self.gptWorker.start()
 
     def processRecognizedText(self, text):
         # In live mode, process the entire text as is
@@ -934,10 +1042,19 @@ class VirtualAssistant(QMainWindow):
             self.gptWorker.start()
 
     def processVoiceCommand(self, command):
+        command = command.strip().lower()
+
+        while command and command[-1] in string.punctuation:
+            command = command[:-1]
+
+        ignoreList = ["exit", "close", "quit", "q"]
+
         # Check if the window is visible
         if not self.isAppVisible:
             return
         if self.liveMode:
+            return
+        if command in ignoreList:
             return
         else:
             self.processCommand(command)
@@ -973,7 +1090,8 @@ class VirtualAssistant(QMainWindow):
         command = command.lower()
 
         if command in ["quit", "close", "exit", "q"]:
-            self.forceCloseApplication()
+            # self.controlledShutdown()
+            self.closeEvent()
             return  # Return immediately to skip processing any further commands
         elif command in ["volume up", "vol up", "vol+"]:
             newVolumeLevel = volume.GetMasterVolumeLevelScalar() + 0.1
@@ -1142,6 +1260,9 @@ class VirtualAssistant(QMainWindow):
             self.toggleLiveMode()
         elif command == "worker":
             self.toggleGPTWorker()
+        elif command == "twitch":
+            self.toggleTwitchChatHandling()
+            self.showBubble()
 
         # Check if the command starts with the prefix
         if command.lower().startswith(prefix.lower()):
@@ -1167,10 +1288,16 @@ class VirtualAssistant(QMainWindow):
 
             self.chatBox.clear()
 
-    def handleGptResponse(self, gptResponse):
+    def handleGptResponse(self, gptResponse, isTwitchChat=False):
         newAssistantEntry = {"role": "assistant", "content": gptResponse}
         self.conversationHistory.append(newAssistantEntry)
         self.saveConversationHistory(newAssistantEntry)
+
+        if isTwitchChat:
+            # Save AI response to Twitch chat history
+            self.saveTwitchChatHistory(
+                {"role": "assistant", "content": gptResponse})
+            # print(gptResponse)
 
         # Check if the response is more than just a space
         if gptResponse.startswith('[') and ']' in gptResponse:
@@ -1225,6 +1352,15 @@ class VirtualAssistant(QMainWindow):
                 "Live mode disabled. Voice commands enabled.")
         self.showBubble()
         self.saveConfig()  # Save the new state
+
+    def toggleTwitchChatHandling(self):
+        self.handleTwitchChat = not self.handleTwitchChat
+        status = "enabled" if self.handleTwitchChat else "disabled"
+        self.messageLabel.setText(f"Twitch chat handling is now {status}")
+
+    def closeEvent(self):
+        self.forceCloseApplication()
+        QApplication.quit()
 
 
 if __name__ == '__main__':
