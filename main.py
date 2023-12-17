@@ -1,6 +1,5 @@
 import sys
 import os
-import time
 import ctypes
 import json
 import sqlite3
@@ -8,8 +7,13 @@ import requests
 import keyboard
 import sympy
 import spotipy
-from ctransformers import AutoModelForCausalLM
+import whisper
+import torch
+import numpy as np
 import speech_recognition as sr
+from time import sleep, time
+from queue import Queue
+from ctransformers import AutoModelForCausalLM
 from spotipy.oauth2 import SpotifyOAuth
 from pytube import YouTube
 from multiprocessing import Process, Queue
@@ -223,16 +227,20 @@ class LocalGPTWorker(QThread):
         self.conversationHistory = conversationHistory
         self.promptType = promptType
         self.systemPrompts = self.loadSystemPrompts()
-        # Load your local model here (adjust the path and model name as needed)
-        self.model = None  # Initialize model to None
 
     def initModel(self):
-        if not self.model:
-            self.model = AutoModelForCausalLM.from_pretrained(
-                "TheBloke/Mistral-7B-OpenOrca-GGUF",
-                model_file="mistral-7b-openorca.Q4_K_M.gguf",
-                model_type="mistral",
-                gpu_layers=50)
+        self.model = AutoModelForCausalLM.from_pretrained(
+            "TheBloke/Mistral-7B-OpenOrca-GGUF",
+            model_file="mistral-7b-openorca.Q4_K_M.gguf",
+            model_type="mistral",
+            max_new_tokens=256,
+            temperature=0.1,
+            top_p=0.9,
+            top_k=2,
+            repetition_penalty=1.18,
+            last_n_tokens=32,
+            batch_size=4,
+            gpu_layers=50)
 
     @staticmethod
     def loadSystemPrompts():
@@ -254,14 +262,13 @@ class LocalGPTWorker(QThread):
                                 for entry in self.conversationHistory])
             prompt = f"{history}\n{self.message}"
 
-            self.systemPrompt = self.systemPrompts.get(
+            self.systemPrompt = "SYSTEM:" + self.systemPrompts.get(
                 self.promptType, "default") + "(With each response add an expression from 'Normal, Surprised, Love, Happy, Confused, Angry' to the start of the message in square brackets, use the often and don't use the same one more than twice in a row.) Keep messages to a 110 character limit if possible. Never use emojis in your reponses."
             prompt_template = 'USER: {0}\nASSISTANT: '
 
             # Generate a response using the local model
             prompt = self.systemPrompt + prompt_template.format(prompt)
-            response = self.model(
-                prompt, max_new_tokens=4096, temperature=0.7, top_p=0.4, top_k=40, repetition_penalty=1.18, last_n_tokens=64, batch_size=128)
+            response = self.model(prompt)
             assistantMessage = response.strip()
 
             # Emit the signal with the generated response
@@ -340,35 +347,61 @@ class ContinuousSpeechRecognition(QThread):
     def __init__(self):
         super(ContinuousSpeechRecognition, self).__init__()
         self.recognizer = sr.Recognizer()
-        self.microphone = sr.Microphone()
+        self.microphone = sr.Microphone(sample_rate=16000)
         self.stop_flag = False
+        self.data_queue = Queue()
+        self.model = whisper.load_model("base")
+        self.record_timeout = 0
+        self.phrase_timeout = 0.5
+        self.last_audio_time = time()
+
+        # Adjust for ambient noise
+        with self.microphone as source:
+            self.recognizer.adjust_for_ambient_noise(source)
+        self.recognizer.energy_threshold = 1000
+        self.recognizer.dynamic_energy_threshold = True
+
+    def record_callback(self, _, audio: sr.AudioData):
+        data = audio.get_raw_data()
+        self.data_queue.put(data)
 
     def run(self):
-        with self.microphone as source:
-            self.recognizer.adjust_for_ambient_noise(source, duration=2)
-            # self.recognizer.dynamic_energy_threshold = True
-            self.recognizer.energy_threshold = 2000
-            self.recognizer.pause_threshold = 0.8
+        self.recognizer.listen_in_background(
+            self.microphone, self.record_callback, phrase_time_limit=self.record_timeout)
 
         while not self.stop_flag:
             try:
-                with self.microphone as source:
-                    audio = self.recognizer.listen(source)
+                current_time = time()
+                if not self.data_queue.empty() or current_time - self.last_audio_time >= self.phrase_timeout:
+                    audio_data = bytearray()
+                    while not self.data_queue.empty():
+                        data = self.data_queue.get()
+                        audio_data.extend(data)
 
-                text = self.recognizer.recognize_google(audio)
-                if text.strip():
-                    print(text)  # Debugging message
-                    self.recognizedText.emit(text)
-                    self.recognizedCommand.emit(text)
+                    if audio_data:
+                        audio_np = np.frombuffer(
+                            audio_data, dtype=np.int16).astype(np.float32) / 32768.0
+
+                        result = self.model.transcribe(
+                            audio_np, fp16=torch.cuda.is_available())
+                        text = result['text'].strip()
+
+                        if text:
+                            # print(text)  # Debugging message
+                            self.recognizedText.emit(text)
+                            self.recognizedCommand.emit(text)
+
+                    # Reset the last audio time if audio was processed
+                    if not self.data_queue.empty():
+                        self.last_audio_time = time()
+
+                sleep(0.25)
 
             except sr.WaitTimeoutError:
-                # Timeout occurs, loop continues
                 pass
             except sr.UnknownValueError:
-                # Could not understand audio
                 pass
             except sr.RequestError as e:
-                # Could not request results
                 pass
 
     def startRecognition(self):
@@ -377,6 +410,12 @@ class ContinuousSpeechRecognition(QThread):
 
     def stopRecognition(self):
         self.stop_flag = True
+        self.wait()  # Wait for the thread to finish
+
+    def cleanUp(self):
+        if self.isRunning():
+            self.stopRecognition()
+            self.terminate()  # Forcefully terminate the thread if it's still running
 
 
 class ClickableBox(QMainWindow):
@@ -645,10 +684,8 @@ class VirtualAssistant(QMainWindow):
 
     def forceCloseApplication(self):
         # Terminate the speech recognition thread
-        if hasattr(self, 'speech_recognition_thread') and self.speech_recognition_thread.isRunning():
-            self.speech_recognition_thread.stopRecognition()
-            self.speech_recognition_thread.terminate()
-            self.speech_recognition_thread.wait()
+        if hasattr(self, 'speech_recognition_thread'):
+            self.speech_recognition_thread.cleanUp()
 
         # Terminate the TTSWorker process
         if hasattr(self, 'ttsWorker') and self.ttsWorker.isRunning():
@@ -660,7 +697,7 @@ class VirtualAssistant(QMainWindow):
             self.gptWorker.terminate()
             self.gptWorker.wait()
 
-        # Terminate the GPTWorker thread
+        # Terminate the LocalGPTWorker thread
         if hasattr(self, 'localGptWorker') and self.localGptWorker.isRunning():
             self.localGptWorker.terminate()
             self.localGptWorker.wait()
@@ -1148,7 +1185,6 @@ class VirtualAssistant(QMainWindow):
             self.showBubble()
             self.messageLabel.setText(message)
         else:
-            # print("No response from GPT.")
             return
 
     def showBubble(self):

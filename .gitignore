@@ -5,3 +5,5 @@
 *.msgpack
 *.db
 .cache
+*.pyc
+/WIP/*
