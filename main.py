@@ -14,6 +14,7 @@ import time
 import socket
 import re
 import subprocess
+import random
 import numpy as np
 import speech_recognition as sr
 from queue import Queue
@@ -467,7 +468,6 @@ class TwitchChatHandler(QThread):
 
                 except Exception as e:
                     return (e)
-                    break
 
     def stop(self):
         self.stop_flag = True
@@ -521,6 +521,12 @@ class VirtualAssistant(QMainWindow):
 
         self.dbConnection = sqlite3.connect('conversationHistory.db')
         self.dbCursor = self.dbConnection.cursor()
+
+        self.twitchChatQueue = []
+        self.processTwitchChatTimer = QTimer(self)
+        self.processTwitchChatTimer.timeout.connect(
+            self.processTwitchChatQueue)
+        self.processTwitchChatTimer.start(60000)
 
         self.wordQueue = []
         self.subtitleTimer = QTimer(self)
@@ -973,10 +979,11 @@ class VirtualAssistant(QMainWindow):
 
     def handleTwitchMessage(self, message):
         # print(message)
-        if self.handleTwitchChat:
-            self.processTwitchChat(message)
-        else:
-            pass
+        self.twitchChatQueue.append(message)
+        # Limit the queue size
+        max_queue_size = 50  # Set your desired size
+        if len(self.twitchChatQueue) > max_queue_size:
+            self.twitchChatQueue.pop(0)
 
     def saveTwitchChatHistory(self, entry):
         tableName = 'twitch_chat'
@@ -1008,6 +1015,12 @@ class VirtualAssistant(QMainWindow):
         workerType = "Local GPT" if self.useLocalGPT else "GPT"
         self.messageLabel.setText(f"Switched to {workerType} Worker")
         self.showBubble()
+
+    def processTwitchChatQueue(self):
+        if self.handleTwitchChat and self.twitchChatQueue:
+            message = random.choice(self.twitchChatQueue)
+            self.processTwitchChat(message)
+            self.twitchChatQueue.clear()
 
     def processTwitchChat(self, text):
         message = text.strip()
@@ -1387,6 +1400,7 @@ class VirtualAssistant(QMainWindow):
 
     def toggleTwitchChatHandling(self):
         self.handleTwitchChat = not self.handleTwitchChat
+        self.setupTwitchChat()
         status = "enabled" if self.handleTwitchChat else "disabled"
         self.messageLabel.setText(f"Twitch chat handling is now {status}")
 
