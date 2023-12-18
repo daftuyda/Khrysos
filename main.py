@@ -219,13 +219,14 @@ class LocalGPTWorker(QThread):
             "TheBloke/Mistral-7B-OpenOrca-GGUF",
             model_file="mistral-7b-openorca.Q4_K_M.gguf",
             model_type="mistral",
-            max_new_tokens=256,
+            max_new_tokens=130,
             temperature=0.1,
             top_p=0.9,
             top_k=2,
             repetition_penalty=1.18,
-            last_n_tokens=32,
+            last_n_tokens=128,
             batch_size=4,
+            context_length=4096,
             gpu_layers=50)
 
     @staticmethod
@@ -249,7 +250,7 @@ class LocalGPTWorker(QThread):
             prompt = f"{history}\n{self.message}"
 
             self.systemPrompt = "SYSTEM:" + self.systemPrompts.get(
-                self.promptType, "default") + "(With each response add an expression from 'Normal, Surprised, Love, Happy, Confused, Angry' to the start of the message in square brackets, use the often and don't use the same one more than twice in a row.) Keep messages to a 110 character limit if possible. Never use emojis in your reponses."
+                self.promptType, "default") + "With each response add an expression exactly from 'Normal, Surprised, Love, Happy, Confused, Angry' to the start of the message in square brackets."
             prompt_template = 'USER: {0}\nASSISTANT: '
 
             # Generate a response using the local model
@@ -543,6 +544,7 @@ class VirtualAssistant(QMainWindow):
         self.liveMode = False
         self.useLocalGPT = False
         self.handleTwitchChat = False
+        self.createSubtitles = False
 
         # Initialize and connect the ClickableBox
         self.clickableBox = ClickableBox(self)
@@ -1087,15 +1089,16 @@ class VirtualAssistant(QMainWindow):
         self.chatBox.clear()
 
     def writeSubtitle(self, text):
-        # Clear the existing content of the file for a new response
-        open('subtitles.txt', 'w').close()
+        if self.createSubtitles:
+            # Clear the existing content of the file for a new response
+            open('subtitles.txt', 'w').close()
 
-        # Initialize the queue with the words from the new response
-        self.wordQueue = text.split()
+            # Initialize the queue with the words from the new response
+            self.wordQueue = text.split()
 
-        # Start the timer if it's not already running
-        if not self.subtitleTimer.isActive():
-            self.subtitleTimer.start()
+            # Start the timer if it's not already running
+            if not self.subtitleTimer.isActive():
+                self.subtitleTimer.start()
 
     def writeNextWord(self):
         if self.wordQueue:
@@ -1303,6 +1306,9 @@ class VirtualAssistant(QMainWindow):
         elif command == "twitch":
             self.toggleTwitchChatHandling()
             self.showBubble()
+        elif command == "subtitles":
+            self.toggleSubtitleCreation()
+            self.showBubble()
 
         # Check if the command starts with the prefix
         if command.lower().startswith(prefix.lower()):
@@ -1403,6 +1409,11 @@ class VirtualAssistant(QMainWindow):
         self.setupTwitchChat()
         status = "enabled" if self.handleTwitchChat else "disabled"
         self.messageLabel.setText(f"Twitch chat handling is now {status}")
+
+    def toggleSubtitleCreation(self):
+        self.createSubtitles = not self.createSubtitles
+        status = "enabled" if self.createSubtitles else "disabled"
+        self.messageLabel.setText(f"Subtitle creation is now {status}")
 
     def closeEvent(self):
         self.forceCloseApplication()
