@@ -522,6 +522,11 @@ class VirtualAssistant(QMainWindow):
         self.dbConnection = sqlite3.connect('conversationHistory.db')
         self.dbCursor = self.dbConnection.cursor()
 
+        self.wordQueue = []
+        self.subtitleTimer = QTimer(self)
+        self.subtitleTimer.timeout.connect(self.writeNextWord)
+        self.subtitleTimer.setInterval(250)
+
         self.currentPromptType = "default"
         self.currentOutfit = 'default'
         self.currentExpression = 'normal'
@@ -1068,6 +1073,26 @@ class VirtualAssistant(QMainWindow):
         self.processCommand(command)
         self.chatBox.clear()
 
+    def writeSubtitle(self, text):
+        # Clear the existing content of the file for a new response
+        open('subtitles.txt', 'w').close()
+
+        # Initialize the queue with the words from the new response
+        self.wordQueue = text.split()
+
+        # Start the timer if it's not already running
+        if not self.subtitleTimer.isActive():
+            self.subtitleTimer.start()
+
+    def writeNextWord(self):
+        if self.wordQueue:
+            word = self.wordQueue.pop(0)
+            with open('subtitles.txt', 'a') as file:  # Open in append mode
+                file.write(word + " ")
+                file.flush()
+        else:
+            self.subtitleTimer.stop()
+
     def processCommand(self, command):
         command = command.strip()
 
@@ -1311,11 +1336,18 @@ class VirtualAssistant(QMainWindow):
                 self.changeExpression(expression)
 
             # Proceed with handling the response including TTS
-            self.startTTS(message)
+            self.writeSubtitle(message)
+
+            if not self.noTtsMode:
+                self.startTTS(message)
+
             self.showBubble()
             self.messageLabel.setText(message)
         else:
-            return
+            if not self.noTtsMode:
+                self.startTTS(gptResponse)
+
+            self.writeSubtitle(gptResponse)
 
     def showBubble(self):
         self.speechBubbleItem.setVisible(True)
