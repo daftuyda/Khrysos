@@ -27,35 +27,47 @@ from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume, ISimpleAudioVolume
 from dotenv import load_dotenv
 from openai import OpenAI
 from PyQt5.QtMultimedia import QSound
-from PyQt5.QtWidgets import QApplication, QMainWindow, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QLineEdit, QLabel
+from PyQt5.QtWidgets import (
+    QApplication,
+    QMainWindow,
+    QGraphicsView,
+    QGraphicsScene,
+    QGraphicsPixmapItem,
+    QLineEdit,
+    QLabel,
+)
 from PyQt5.QtGui import QPixmap, QFont, QFontDatabase
 from PyQt5.QtCore import QTimer, Qt, QThread, pyqtSignal, QObject
 
 load_dotenv()
 
-openWeatherKey = os.getenv('openWeatherApi')
+openWeatherKey = os.getenv("openWeatherApi")
 
-haUrl = os.getenv('haUrl')
-haToken = os.getenv('haToken')
+haUrl = os.getenv("haUrl")
+haToken = os.getenv("haToken")
 
-clientId = os.getenv('SpotifyClientId')
-secretId = os.getenv('SpotifySecretId')
-redirectUri = os.getenv('SpotifyRedirectUri')
+clientId = os.getenv("SpotifyClientId")
+secretId = os.getenv("SpotifySecretId")
+redirectUri = os.getenv("SpotifyRedirectUri")
 scope = "user-read-private user-read-playback-state user-modify-playback-state"
 
-sp = spotipy.Spotify(auth_manager=SpotifyOAuth(client_id=clientId,
-                                               client_secret=secretId,
-                                               redirect_uri=redirectUri,
-                                               scope=scope))
+sp = spotipy.Spotify(
+    auth_manager=SpotifyOAuth(
+        client_id=clientId,
+        client_secret=secretId,
+        redirect_uri=redirectUri,
+        scope=scope,
+    )
+)
 
 
-twitchToken = redirectUri = os.getenv('twitch_oauth')
+twitchToken = redirectUri = os.getenv("twitch_oauth")
 
 
 def searchAndPlay(songName):
     results = sp.search(q=songName, limit=1)
-    if results['tracks']['items']:
-        song_uri = results['tracks']['items'][0]['uri']
+    if results["tracks"]["items"]:
+        song_uri = results["tracks"]["items"][0]["uri"]
         sp.start_playback(uris=[song_uri])
         return f"Playing: {results['tracks']['items'][0]['name']}"
     else:
@@ -65,31 +77,31 @@ def searchAndPlay(songName):
 def getPlaylists():
     playlists = sp.current_user_playlists(limit=10)
     playlist_info = ""
-    for playlist in playlists['items']:
+    for playlist in playlists["items"]:
         playlist_info += f"{playlist['name']}\n"
     return playlist_info
 
 
 def getPlaylistId(sp, playlistName):
     playlists = sp.current_user_playlists()
-    for playlist in playlists['items']:
-        if playlist['name'].lower() == playlistName.lower():
-            return playlist['id']
+    for playlist in playlists["items"]:
+        if playlist["name"].lower() == playlistName.lower():
+            return playlist["id"]
     return None
 
 
 def playPlaylist(playlistName):
     playlistId = getPlaylistId(sp, playlistName)
     if playlistId:
-        sp.start_playback(context_uri=f'spotify:playlist:{playlistId}')
+        sp.start_playback(context_uri=f"spotify:playlist:{playlistId}")
     else:
-        return ("Playlist not found.")
+        return "Playlist not found."
 
 
 def queueSong(songName):
     results = sp.search(q=songName, limit=1)
-    if results['tracks']['items']:
-        song_uri = results['tracks']['items'][0]['uri']
+    if results["tracks"]["items"]:
+        song_uri = results["tracks"]["items"][0]["uri"]
         sp.add_to_queue(song_uri)
         return f"Queued: {results['tracks']['items'][0]['name']}"
     else:
@@ -105,7 +117,7 @@ VK_MEDIA_PLAY_PAUSE = 0xB3
 KEYEVENTF_EXTENDEDKEY = 0x1
 KEYEVENTF_KEYUP = 0x2
 
-user32 = ctypes.WinDLL('user32', use_last_error=True)
+user32 = ctypes.WinDLL("user32", use_last_error=True)
 
 
 def keybd_event(bVk, bScan, dwFlags, dwExtraInfo):
@@ -114,8 +126,7 @@ def keybd_event(bVk, bScan, dwFlags, dwExtraInfo):
 
 def simulatePlayPause():
     keybd_event(VK_MEDIA_PLAY_PAUSE, 0, KEYEVENTF_EXTENDEDKEY, 0)
-    keybd_event(VK_MEDIA_PLAY_PAUSE, 0,
-                KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0)
+    keybd_event(VK_MEDIA_PLAY_PAUSE, 0, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0)
 
 
 def getAppIdByName(processName):
@@ -134,7 +145,7 @@ def setAppVolumeByName(processName, level):
     if processId is not None:
         setAppVolume(processId, level)
     else:
-        return (f"No process found with the name '{processName}'")
+        return f"No process found with the name '{processName}'"
 
 
 def setAppVolume(processId, level):
@@ -176,16 +187,16 @@ def get_weather(cityName):
     return response.json()
 
 
-openAiKey = os.getenv('OPENAI_API_KEY')
+openAiKey = os.getenv("OPENAI_API_KEY")
 oClient = OpenAI(api_key=openAiKey)
-elevenApi = os.getenv('ELEVENLABS_API_KEY')
+elevenApi = os.getenv("ELEVENLABS_API_KEY")
 
 
 class DownloadWorker(QObject):
     finished = pyqtSignal(str)
     error = pyqtSignal(str)
 
-    def __init__(self, url, path='downloads/'):
+    def __init__(self, url, path="downloads/"):
         super().__init__()
         self.url = url
         self.path = path
@@ -193,8 +204,12 @@ class DownloadWorker(QObject):
     def run(self):
         try:
             yt = YouTube(self.url)
-            video = yt.streams.filter(progressive=True, file_extension='mp4').order_by(
-                'resolution').desc().first()
+            video = (
+                yt.streams.filter(progressive=True, file_extension="mp4")
+                .order_by("resolution")
+                .desc()
+                .first()
+            )
             if video:
                 video.download(self.path)
                 self.finished.emit(f"Downloaded: {yt.title}")
@@ -227,17 +242,18 @@ class LocalGPTWorker(QThread):
             last_n_tokens=128,
             batch_size=4,
             context_length=4096,
-            gpu_layers=50)
+            gpu_layers=50,
+        )
 
     @staticmethod
     def loadSystemPrompts():
         prompts = {}
-        promptDir = 'prompts/'  # Update with the correct path
+        promptDir = "prompts/"  # Update with the correct path
         for filename in os.listdir(promptDir):
-            if filename.endswith('.txt'):
+            if filename.endswith(".txt"):
                 # Get the file name without the extension
-                promptType = filename.rsplit('.', 1)[0]
-                with open(os.path.join(promptDir, filename), 'r') as file:
+                promptType = filename.rsplit(".", 1)[0]
+                with open(os.path.join(promptDir, filename), "r") as file:
                     prompts[promptType] = file.read().strip()
         return prompts
 
@@ -245,13 +261,17 @@ class LocalGPTWorker(QThread):
         try:
             self.initModel()
             # Process the conversation history and the new message
-            history = "\n".join([entry['content']
-                                for entry in self.conversationHistory])
+            history = "\n".join(
+                [entry["content"] for entry in self.conversationHistory]
+            )
             prompt = f"{history}\n{self.message}"
 
-            self.systemPrompt = "SYSTEM:" + self.systemPrompts.get(
-                self.promptType, "default") + "With each response add an expression exactly from 'Normal, Surprised, Love, Happy, Confused, Angry' to the start of the message in square brackets."
-            prompt_template = 'USER: {0}\nASSISTANT: '
+            self.systemPrompt = (
+                "SYSTEM:"
+                + self.systemPrompts.get(self.promptType, "default")
+                + "With each response add an expression exactly from 'Normal, Surprised, Love, Happy, Confused, Angry' to the start of the message in square brackets."
+            )
+            prompt_template = "USER: {0}\nASSISTANT: "
 
             # Generate a response using the local model
             prompt = self.systemPrompt + prompt_template.format(prompt)
@@ -267,7 +287,9 @@ class LocalGPTWorker(QThread):
 class GPTWorker(QThread):
     finished = pyqtSignal(str, bool)
 
-    def __init__(self, message, conversationHistory, promptType="default", isTwitchChat=False):
+    def __init__(
+        self, message, conversationHistory, promptType="default", isTwitchChat=False
+    ):
         super().__init__()
         self.message = message
         self.conversationHistory = conversationHistory
@@ -278,35 +300,55 @@ class GPTWorker(QThread):
     @staticmethod
     def loadSystemPrompts():
         prompts = {}
-        promptDir = 'prompts/'  # Update with the correct path
+        promptDir = "prompts/"  # Update with the correct path
         for filename in os.listdir(promptDir):
-            if filename.endswith('.txt'):
+            if filename.endswith(".txt"):
                 # Get the file name without the extension
-                promptType = filename.rsplit('.', 1)[0]
-                with open(os.path.join(promptDir, filename), 'r') as file:
+                promptType = filename.rsplit(".", 1)[0]
+                with open(os.path.join(promptDir, filename), "r") as file:
                     prompts[promptType] = file.read().strip()
         return prompts
 
     def run(self):
         try:
-            systemPrompt = self.systemPrompts.get(
-                self.promptType, "default")
+            systemPrompt = self.systemPrompts.get(self.promptType, "default")
             messages = [
-                {"role": "system", "content": systemPrompt +
-                    """(With each response add an expression from 'Normal, Surprised, Love, Happy, Confused, Angry' to the start of the message in square brackets, use the often and don't use the same one more than twice in a row.) Keep responses down to 150 tokens."""}
+                {
+                    "role": "system",
+                    "content": systemPrompt
+                    + """(With each response add an expression from 'Normal, Surprised, Love, Happy, Confused, Angry' to the start of the message in square brackets, use the often and don't use the same one more than twice in a row.)""",
+                }
             ]
             messages += self.conversationHistory
             messages.append({"role": "user", "content": self.message})
 
             response = oClient.chat.completions.create(
                 model="gpt-3.5-turbo",
-                messages=messages
+                messages=messages,
+                temperature=0.7,
+                max_tokens=150,
+                # stream=True,
             )
 
+            ## Stream the response ##
+            # for chunk in response:
+            #     if chunk.choices[0].delta.content is not None:
+            #         chunkMessage = chunk.choices[0].delta.content.strip()
+            #     else:
+            #         chunkMessage = ""
+
+            #     # Assuming end of sentence or new line as possible end of response
+            #     is_final = chunkMessage.endswith(".") or chunkMessage.endswith("\n")
+
+            #     # Emit the chunk message, whether it's empty or not
+            #     print(chunkMessage)
+            #     self.finished.emit(chunkMessage, self.isTwitchChat)
+
             assistantMessage = response.choices[0].message.content.strip()
+            # print(assistantMessage)
             self.finished.emit(assistantMessage, self.isTwitchChat)
         except Exception as e:
-            self.finished.emit(str(e))
+            self.finished.emit(str(e), self.isTwitchChat)
 
 
 class TTSWorker(QThread):
@@ -319,23 +361,19 @@ class TTSWorker(QThread):
 
     def run(self):
         try:
-            voiceId = 'WkjghqT4Y4l9wvVntXxb'
-            url = f'https://api.elevenlabs.io/v1/text-to-speech/{voiceId}/stream'
+            voiceId = "WkjghqT4Y4l9wvVntXxb"
+            url = f"https://api.elevenlabs.io/v1/text-to-speech/{voiceId}/stream"
             headers = {
-                'accept': '*/*',
-                'xi-api-key': self.apiKey,
-                'Content-Type': 'application/json'
+                "accept": "*/*",
+                "xi-api-key": self.apiKey,
+                "Content-Type": "application/json",
             }
             data = {
-                'text': self.text,
-                'voice_settings': {
-                    'stability': 0.3,
-                    'similarity_boost': 0.30
-                }
+                "text": self.text,
+                "voice_settings": {"stability": 0.3, "similarity_boost": 0.30},
             }
 
-            response = requests.post(
-                url, headers=headers, json=data, stream=True)
+            response = requests.post(url, headers=headers, json=data, stream=True)
             response.raise_for_status()
 
             # Configure subprocess to hide the window
@@ -345,16 +383,22 @@ class TTSWorker(QThread):
             startupinfo.wShowWindow = SW_HIDE
 
             # Command to run ffplay
-            ffplayCmd = ['ffplay', '-autoexit', '-']
+            ffplayCmd = ["ffplay", "-autoexit", "-"]
 
             # Start the ffplay subprocess
-            with subprocess.Popen(ffplayCmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, startupinfo=startupinfo) as ffplayProc:
+            with subprocess.Popen(
+                ffplayCmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                startupinfo=startupinfo,
+            ) as ffplayProc:
                 for chunk in response.iter_content(chunk_size=4096):
                     ffplayProc.stdin.write(chunk)
                 ffplayProc.stdin.close()
                 ffplayProc.wait()
         except Exception as e:
-            return (f"Error: {str(e)}")
+            return f"Error: {str(e)}"
 
 
 class ContinuousSpeechRecognition(QThread):
@@ -384,12 +428,16 @@ class ContinuousSpeechRecognition(QThread):
 
     def run(self):
         self.recognizer.listen_in_background(
-            self.microphone, self.record_callback, phrase_time_limit=self.recordTimeout)
+            self.microphone, self.record_callback, phrase_time_limit=self.recordTimeout
+        )
 
         while not self.stopFlag:
             try:
                 currentTime = time.time()
-                if not self.dataQueue.empty() or currentTime - self.lastAudioTime >= self.phraseTimeout:
+                if (
+                    not self.dataQueue.empty()
+                    or currentTime - self.lastAudioTime >= self.phraseTimeout
+                ):
                     audioData = bytearray()
                     while not self.dataQueue.empty():
                         # Set a timeout for getting data
@@ -399,12 +447,15 @@ class ContinuousSpeechRecognition(QThread):
                             return  # Exit the loop if stopFlag is set
 
                     if audioData:
-                        audioNp = np.frombuffer(
-                            audioData, dtype=np.int16).astype(np.float32) / 32768.0
+                        audioNp = (
+                            np.frombuffer(audioData, dtype=np.int16).astype(np.float32)
+                            / 32768.0
+                        )
 
                         result = self.model.transcribe(
-                            audioNp, fp16=torch.cuda.is_available())
-                        text = result['text'].strip()
+                            audioNp, fp16=torch.cuda.is_available()
+                        )
+                        text = result["text"].strip()
 
                         if text:
                             # print(text)  # Debugging message
@@ -468,7 +519,7 @@ class TwitchChatHandler(QThread):
                         self.received_message.emit(chat)
 
                 except Exception as e:
-                    return (e)
+                    return e
 
     def stop(self):
         self.stop_flag = True
@@ -481,12 +532,11 @@ class ClickableBox(QMainWindow):
         super(ClickableBox, self).__init__(parent)
         self.setFixedSize(25, 25)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
-        self.setStyleSheet(
-            "background-color: rgba(0, 0, 0, 0.75); border-radius: 5px;")
+        self.setStyleSheet("background-color: rgba(0, 0, 0, 0.75); border-radius: 5px;")
 
         # Load and set the icon
         self.iconLabel = QLabel(self)
-        iconPixmap = QPixmap('static/eye.png')  # Path to your icon
+        iconPixmap = QPixmap("static/eye.png")  # Path to your icon
         self.iconLabel.setPixmap(iconPixmap.scaled(25, 25))  # Scale as needed
         self.iconLabel.setAlignment(Qt.AlignCenter)
         self.iconLabel.setGeometry(0, 1, 25, 25)  # Adjust geometry as needed
@@ -514,19 +564,16 @@ class VirtualAssistant(QMainWindow):
         super().__init__()
 
         self.speechRecognitionThread = ContinuousSpeechRecognition()
-        self.speechRecognitionThread.recognizedText.connect(
-            self.processRecognizedText)
-        self.speechRecognitionThread.recognizedCommand.connect(
-            self.processVoiceCommand)
+        self.speechRecognitionThread.recognizedText.connect(self.processRecognizedText)
+        self.speechRecognitionThread.recognizedCommand.connect(self.processVoiceCommand)
         self.speechRecognitionThread.start()
 
-        self.dbConnection = sqlite3.connect('conversationHistory.db')
+        self.dbConnection = sqlite3.connect("conversationHistory.db")
         self.dbCursor = self.dbConnection.cursor()
 
         self.twitchChatQueue = []
         self.processTwitchChatTimer = QTimer(self)
-        self.processTwitchChatTimer.timeout.connect(
-            self.processTwitchChatQueue)
+        self.processTwitchChatTimer.timeout.connect(self.processTwitchChatQueue)
         self.processTwitchChatTimer.start(60000)
 
         self.wordQueue = []
@@ -535,8 +582,8 @@ class VirtualAssistant(QMainWindow):
         self.subtitleTimer.setInterval(250)
 
         self.currentPromptType = "default"
-        self.currentOutfit = 'default'
-        self.currentExpression = 'normal'
+        self.currentOutfit = "default"
+        self.currentExpression = "normal"
         self.isBlinking = False
         self.blinkingIndex = 0
         self.noTtsMode = False
@@ -556,10 +603,20 @@ class VirtualAssistant(QMainWindow):
         self.conversationHistory = []
 
         # Define outfits and expressions
-        self.outfits = ['default', 'cat', 'devil', 'mini', 'victorian',
-                        'chinese', 'yukata', 'steampunk', 'gown', 'bikini', 'cyberpunk']
-        self.expressions = ['normal', 'surprised', 'love', 'happy',
-                            'confused', 'angry']
+        self.outfits = [
+            "default",
+            "cat",
+            "devil",
+            "mini",
+            "victorian",
+            "chinese",
+            "yukata",
+            "steampunk",
+            "gown",
+            "bikini",
+            "cyberpunk",
+        ]
+        self.expressions = ["normal", "surprised", "love", "happy", "confused", "angry"]
 
         # Load sprites and blinking animation sprites
         self.sprites = {}
@@ -569,26 +626,37 @@ class VirtualAssistant(QMainWindow):
             self.blinkingSprites[outfit] = {}
             for expression in self.expressions:
                 # Load regular sprites
-                spritePath = f'sprites/{outfit}/{expression}.png'
+                spritePath = f"sprites/{outfit}/{expression}.png"
                 self.sprites[outfit][expression] = QPixmap(spritePath).scaled(
                     int(QPixmap(spritePath).width()),
                     int(QPixmap(spritePath).height()),
-                    Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    Qt.KeepAspectRatio,
+                    Qt.SmoothTransformation,
+                )
 
                 # Load blinking animation sprites
                 self.blinkingSprites[outfit][expression] = [
-                    QPixmap(f'sprites/{outfit}/{expression}Blink{i}.png').scaled(
-                        int(QPixmap(
-                            f'sprites/{outfit}/{expression}Blink{i}.png').width()),
-                        int(QPixmap(
-                            f'sprites/{outfit}/{expression}Blink{i}.png').height()),
-                        Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                    for i in range(1, 4)]
+                    QPixmap(f"sprites/{outfit}/{expression}Blink{i}.png").scaled(
+                        int(
+                            QPixmap(
+                                f"sprites/{outfit}/{expression}Blink{i}.png"
+                            ).width()
+                        ),
+                        int(
+                            QPixmap(
+                                f"sprites/{outfit}/{expression}Blink{i}.png"
+                            ).height()
+                        ),
+                        Qt.KeepAspectRatio,
+                        Qt.SmoothTransformation,
+                    )
+                    for i in range(1, 4)
+                ]
 
         # Load the local font
         fontId = QFontDatabase.addApplicationFont("font/dogicapixel.ttf")
         if fontId == -1:
-            return ("Failed to load font")
+            return "Failed to load font"
         else:
             fontFamily = QFontDatabase.applicationFontFamilies(fontId)[0]
             customFont = QFont(fontFamily)
@@ -631,7 +699,7 @@ class VirtualAssistant(QMainWindow):
         self.initSpriteItem()
 
         # Load the config and conversation history
-        self.configFile = 'config.json'
+        self.configFile = "config.json"
         self.loadConfig()
         self.loadConversationHistory()
 
@@ -642,7 +710,7 @@ class VirtualAssistant(QMainWindow):
         self.move(x, y)
 
         # Load and position the speech bubble sprite
-        speechBubblePixmap = QPixmap('sprites/bubble.png')
+        speechBubblePixmap = QPixmap("sprites/bubble.png")
         self.speechBubbleItem = QGraphicsPixmapItem(speechBubblePixmap)
         self.speechBubbleItem.setPos(-100, -100)
         self.scene.addItem(self.speechBubbleItem)
@@ -657,8 +725,7 @@ class VirtualAssistant(QMainWindow):
         yPosition = 10
         labelWidth = 100
         labelHeight = 180
-        self.messageLabel.setGeometry(
-            xPosition, yPosition, labelWidth, labelHeight)
+        self.messageLabel.setGeometry(xPosition, yPosition, labelWidth, labelHeight)
         self.messageLabel.setWordWrap(True)
 
         # Create a QTimer for hiding the speech bubble
@@ -675,7 +742,8 @@ class VirtualAssistant(QMainWindow):
         self.chatBox = QLineEdit(self)
         self.chatBox.setGeometry(10, 400, 380, 25)
         self.chatBox.setStyleSheet(
-            "background-color: white; color: black; border: 2px solid black; border-radius: 5px;")
+            "background-color: white; color: black; border: 2px solid black; border-radius: 5px;"
+        )
         self.chatBox.setPlaceholderText("Use the 'gpt' prefix for ChatGPT.")
         self.chatBox.setFocus()
         self.chatBox.returnPressed.connect(self.processChatboxCommand)
@@ -688,47 +756,56 @@ class VirtualAssistant(QMainWindow):
         self.loadConversationHistory()
 
     def createDatabase(self, promptType):
-        tableName = f'history_{promptType}'
+        tableName = f"history_{promptType}"
         try:
-            self.dbCursor.execute(f'''CREATE TABLE IF NOT EXISTS {tableName}
+            self.dbCursor.execute(
+                f"""CREATE TABLE IF NOT EXISTS {tableName}
                                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
                                     role TEXT,
                                     content TEXT,
-                                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+                                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)"""
+            )
             self.dbConnection.commit()
         except sqlite3.Error as e:
-            return (f"An error occurred while creating the table: {e}")
+            return f"An error occurred while creating the table: {e}"
 
     def createTwitchChatTable(self):
-        tableName = 'twitch_chat'
+        tableName = "twitch_chat"
         try:
-            self.dbCursor.execute(f'''CREATE TABLE IF NOT EXISTS {tableName}
+            self.dbCursor.execute(
+                f"""CREATE TABLE IF NOT EXISTS {tableName}
                                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
                                     role TEXT,
                                     content TEXT,
-                                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+                                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)"""
+            )
             self.dbConnection.commit()
         except sqlite3.Error as e:
-            return (f"Error: {e}")
+            return f"Error: {e}"
 
     def saveConversationHistory(self, entry=None):
-        tableName = f'history_{self.currentPromptType}'
+        tableName = f"history_{self.currentPromptType}"
         if entry is not None:
-            self.dbCursor.execute(f"INSERT INTO {tableName} (role, content) VALUES (?, ?)",
-                                  (entry['role'], entry['content']))
+            self.dbCursor.execute(
+                f"INSERT INTO {tableName} (role, content) VALUES (?, ?)",
+                (entry["role"], entry["content"]),
+            )
         else:
             for entry in self.conversationHistory:
-                self.dbCursor.execute(f"INSERT INTO {tableName} (role, content) VALUES (?, ?)",
-                                      (entry['role'], entry['content']))
+                self.dbCursor.execute(
+                    f"INSERT INTO {tableName} (role, content) VALUES (?, ?)",
+                    (entry["role"], entry["content"]),
+                )
         self.dbConnection.commit()
 
     def loadConversationHistory(self):
         self.conversationHistory = []
-        tableName = f'history_{self.currentPromptType}'
+        tableName = f"history_{self.currentPromptType}"
         try:
-            for row in self.dbCursor.execute(f"SELECT role, content FROM {tableName} ORDER BY timestamp"):
-                self.conversationHistory.append(
-                    {"role": row[0], "content": row[1]})
+            for row in self.dbCursor.execute(
+                f"SELECT role, content FROM {tableName} ORDER BY timestamp"
+            ):
+                self.conversationHistory.append({"role": row[0], "content": row[1]})
         except sqlite3.OperationalError as e:
             # If no table exists for the current prompt type, create it
             self.createDatabase(self.currentPromptType)
@@ -764,25 +841,25 @@ class VirtualAssistant(QMainWindow):
 
     def forceCloseApplication(self):
         # Terminate the speech recognition thread
-        if hasattr(self, 'speechRecognitionThread'):
+        if hasattr(self, "speechRecognitionThread"):
             self.speechRecognitionThread.stopRecognition()
             self.speechRecognitionThread.wait()
 
         # Terminate the GPTWorker thread
-        if hasattr(self, 'gptWorker'):
+        if hasattr(self, "gptWorker"):
             self.gptWorker.terminate()
             self.gptWorker.wait()
 
         # Terminate the LocalGPTWorker thread
-        if hasattr(self, 'localGptWorker'):
+        if hasattr(self, "localGptWorker"):
             self.localGptWorker.terminate()
             self.localGptWorker.wait()
 
         # Close database connection
-        if hasattr(self, 'dbConnection'):
+        if hasattr(self, "dbConnection"):
             self.dbConnection.close()
 
-        if hasattr(self, 'TwitchChatHandler'):
+        if hasattr(self, "TwitchChatHandler"):
             self.twitchChatHandler.stop()
             self.twitchChatHandler.wait()
 
@@ -805,34 +882,34 @@ class VirtualAssistant(QMainWindow):
 
     def saveConfig(self):
         config = {
-            'outfit': self.currentOutfit,
-            'promptType': self.currentPromptType,
-            'keyword': self.keyword,
-            'shortcuts': self.shortcuts,
-            'lights': self.lights
+            "outfit": self.currentOutfit,
+            "promptType": self.currentPromptType,
+            "keyword": self.keyword,
+            "shortcuts": self.shortcuts,
+            "lights": self.lights,
         }
-        with open(self.configFile, 'w') as f:
+        with open(self.configFile, "w") as f:
             json.dump(config, f, indent=4)
 
     def loadConfig(self):
         if os.path.exists(self.configFile):
-            with open(self.configFile, 'r') as f:
+            with open(self.configFile, "r") as f:
                 config = json.load(f)
-                self.currentOutfit = config.get('outfit', 'default')
-                self.currentPromptType = config.get('promptType', 'default')
-                self.keyword = config.get('keyword', 'hey')
-                self.shortcuts = config.get('shortcuts', {})
-                self.lights = config.get('lights', {})
+                self.currentOutfit = config.get("outfit", "default")
+                self.currentPromptType = config.get("promptType", "default")
+                self.keyword = config.get("keyword", "hey")
+                self.shortcuts = config.get("shortcuts", {})
+                self.lights = config.get("lights", {})
                 self.updateSprite()
                 return self.currentPromptType
         else:
             # Default values if config file doesn't exist
-            self.currentOutfit = 'default'
-            self.currentPromptType = 'default'
-            self.keyword = 'hey'
+            self.currentOutfit = "default"
+            self.currentPromptType = "default"
+            self.keyword = "hey"
             self.shortcuts = {}
             self.lights = {}
-            return config.get('promptType', 'default')
+            return config.get("promptType", "default")
 
     def cycleOutfit(self):
         currentIndex = self.outfits.index(self.currentOutfit)
@@ -849,14 +926,19 @@ class VirtualAssistant(QMainWindow):
         self.saveConfig()
 
     def changeExpression(self, newExpression):
-        if newExpression in self.expressions and newExpression != self.currentExpression:
+        if (
+            newExpression in self.expressions
+            and newExpression != self.currentExpression
+        ):
             self.currentExpression = newExpression
             self.updateSprite()
-            if newExpression != 'normal':  # Assuming 'normal' is your default expression
+            if (
+                newExpression != "normal"
+            ):  # Assuming 'normal' is your default expression
                 self.resetExpressionTimer.start(self.resetExpressionDuration)
 
     def resetExpression(self):
-        self.changeExpression('normal')  # Reset to default expression
+        self.changeExpression("normal")  # Reset to default expression
         self.resetExpressionTimer.stop()  # Stop the timer
 
     def updateSprite(self):
@@ -870,7 +952,9 @@ class VirtualAssistant(QMainWindow):
 
     def blinkFrame(self, manualControl=False):
         if self.isBlinking or manualControl:
-            blinkSequence = self.blinkingSprites[self.currentOutfit][self.currentExpression]
+            blinkSequence = self.blinkingSprites[self.currentOutfit][
+                self.currentExpression
+            ]
 
             if self.blinkingIndex < len(blinkSequence):
                 self.spriteItem.setPixmap(blinkSequence[self.blinkingIndex])
@@ -880,7 +964,8 @@ class VirtualAssistant(QMainWindow):
                 self.isBlinking = False
                 self.blinkFrameTimer.stop() if not manualControl else None
                 self.spriteItem.setPixmap(
-                    self.sprites[self.currentOutfit][self.currentExpression])
+                    self.sprites[self.currentOutfit][self.currentExpression]
+                )
 
     def testExpressions(self):
         for expression in self.expressions:
@@ -900,7 +985,8 @@ class VirtualAssistant(QMainWindow):
             self.isBlinking = False
             self.blinkingIndex = 0
             self.spriteItem.setPixmap(
-                self.sprites[self.currentOutfit][self.currentExpression])
+                self.sprites[self.currentOutfit][self.currentExpression]
+            )
             QApplication.processEvents()
 
     def hideSpeechBubble(self):
@@ -928,7 +1014,7 @@ class VirtualAssistant(QMainWindow):
             response = requests.post(url, json=data, headers=headers)
             return response.ok
         except Exception as e:
-            return (f"Error controlling Home Assistant device: {e}")
+            return f"Error controlling Home Assistant device: {e}"
 
     def getHomeAssistantState(self, entityId):
         headers = {
@@ -939,35 +1025,37 @@ class VirtualAssistant(QMainWindow):
         try:
             response = requests.get(url, headers=headers)
             if response.ok:
-                return response.json()['state']
+                return response.json()["state"]
             else:
                 return None
         except Exception as e:
-            return (f"Error fetching state from Home Assistant: {e}")
+            return f"Error fetching state from Home Assistant: {e}"
 
     def toggleHomeAssistantLight(self, entityId):
         currentState = self.getHomeAssistantState(entityId)
         if currentState is None:
-            return ("Error getting current state")
+            return "Error getting current state"
 
         action = "turn_off" if currentState == "on" else "turn_on"
         return self.controlHomeAssistant(entityId, action)
 
     def formatWeatherData(self, weatherData):
         try:
-            city = weatherData['name']
-            weatherCondition = weatherData['weather'][0]['description']
-            temperature = weatherData['main']['temp']
-            humidity = weatherData['main']['humidity']
+            city = weatherData["name"]
+            weatherCondition = weatherData["weather"][0]["description"]
+            temperature = weatherData["main"]["temp"]
+            humidity = weatherData["main"]["humidity"]
 
             # Converting temperature from Kelvin to Celsius
             tempCelsius = temperature - 273.15
 
             # Formatting the message
-            weatherMessage = (f"Weather in {city}:\n"
-                              f"Condition: {weatherCondition.title()}\n"
-                              f"Temperature: {tempCelsius:.2f}°C\n"
-                              f"Humidity: {humidity}%")
+            weatherMessage = (
+                f"Weather in {city}:\n"
+                f"Condition: {weatherCondition.title()}\n"
+                f"Temperature: {tempCelsius:.2f}°C\n"
+                f"Humidity: {humidity}%"
+            )
 
             return weatherMessage
         except KeyError:
@@ -975,8 +1063,7 @@ class VirtualAssistant(QMainWindow):
 
     def setupTwitchChat(self):
         self.twitchChatHandler = TwitchChatHandler("Shift8Void", "#Shift8Void")
-        self.twitchChatHandler.received_message.connect(
-            self.handleTwitchMessage)
+        self.twitchChatHandler.received_message.connect(self.handleTwitchMessage)
         self.twitchChatHandler.start()
 
     def handleTwitchMessage(self, message):
@@ -988,20 +1075,24 @@ class VirtualAssistant(QMainWindow):
             self.twitchChatQueue.pop(0)
 
     def saveTwitchChatHistory(self, entry):
-        tableName = 'twitch_chat'
+        tableName = "twitch_chat"
         # Insert the entry into the Twitch chat history table
         try:
-            self.dbCursor.execute(f"INSERT INTO {tableName} (role, content) VALUES (?, ?)",
-                                  (entry['role'], entry['content']))
+            self.dbCursor.execute(
+                f"INSERT INTO {tableName} (role, content) VALUES (?, ?)",
+                (entry["role"], entry["content"]),
+            )
             self.dbConnection.commit()
         except sqlite3.Error as e:
-            return (f"Error: {e}")
+            return f"Error: {e}"
 
     def loadTwitchChatHistory(self):
         twitchChatHistory = []
-        tableName = 'twitch_chat'
+        tableName = "twitch_chat"
         try:
-            for row in self.dbCursor.execute(f"SELECT role, content FROM {tableName} ORDER BY timestamp"):
+            for row in self.dbCursor.execute(
+                f"SELECT role, content FROM {tableName} ORDER BY timestamp"
+            ):
                 twitchChatHistory.append({"role": row[0], "content": row[1]})
         except sqlite3.OperationalError as e:
             # If no table exists for Twitch chat history, create it
@@ -1033,7 +1124,8 @@ class VirtualAssistant(QMainWindow):
         self.saveTwitchChatHistory({"role": "user", "content": message})
 
         self.gptWorker = GPTWorker(
-            message, twitchChatHistory, promptType='twitch', isTwitchChat=True)
+            message, twitchChatHistory, promptType="twitch", isTwitchChat=True
+        )
         self.gptWorker.finished.connect(self.handleGptResponse)
         self.gptWorker.start()
 
@@ -1043,7 +1135,7 @@ class VirtualAssistant(QMainWindow):
             command = text.strip()
         # If not in live mode, check if the text starts with the keyword and remove it
         elif text.lower().startswith(self.keyword.lower()):
-            command = text[len(self.keyword):].strip()
+            command = text[len(self.keyword) :].strip()
         else:
             return  # If not in live mode and text doesn't start with keyword, do nothing
 
@@ -1054,12 +1146,14 @@ class VirtualAssistant(QMainWindow):
 
         if self.useLocalGPT:
             self.localGptWorker = LocalGPTWorker(
-                command, self.conversationHistory, promptType=self.currentPromptType)
+                command, self.conversationHistory, promptType=self.currentPromptType
+            )
             self.localGptWorker.finished.connect(self.handleGptResponse)
             self.localGptWorker.start()
         else:
             self.gptWorker = GPTWorker(
-                command, self.conversationHistory, promptType=self.currentPromptType)
+                command, self.conversationHistory, promptType=self.currentPromptType
+            )
             self.gptWorker.finished.connect(self.handleGptResponse)
             self.gptWorker.start()
 
@@ -1091,7 +1185,7 @@ class VirtualAssistant(QMainWindow):
     def writeSubtitle(self, text):
         if self.createSubtitles:
             # Clear the existing content of the file for a new response
-            open('subtitles.txt', 'w').close()
+            open("subtitles.txt", "w").close()
 
             # Initialize the queue with the words from the new response
             self.wordQueue = text.split()
@@ -1103,7 +1197,7 @@ class VirtualAssistant(QMainWindow):
     def writeNextWord(self):
         if self.wordQueue:
             word = self.wordQueue.pop(0)
-            with open('subtitles.txt', 'a') as file:  # Open in append mode
+            with open("subtitles.txt", "a") as file:  # Open in append mode
                 file.write(word + " ")
                 file.flush()
         else:
@@ -1116,7 +1210,7 @@ class VirtualAssistant(QMainWindow):
         prefix = "gpt"
 
         if command.startswith("dl "):
-            url = command[len("dl "):].strip()
+            url = command[len("dl ") :].strip()
             self.downloadWorker = DownloadWorker(url)
             # Connect signals
             self.downloadWorker.finished.connect(self.onDownloadFinished)
@@ -1166,11 +1260,13 @@ class VirtualAssistant(QMainWindow):
                         volumeLevel = percent / 100.0
                     else:
                         self.messageLabel.setText(
-                            "Invalid volume percentage. Please use a value between 0 and 100.")
+                            "Invalid volume percentage. Please use a value between 0 and 100."
+                        )
                         return
                 except ValueError:
                     self.messageLabel.setText(
-                        "Invalid volume percentage. Please use a numeric value or 'max'.")
+                        "Invalid volume percentage. Please use a numeric value or 'max'."
+                    )
                     return
             volume.SetMasterVolumeLevelScalar(volumeLevel, None)
             self.messageLabel.setText(f"Master volume set to {percent}%.")
@@ -1190,19 +1286,21 @@ class VirtualAssistant(QMainWindow):
                             volumeLevel = percent / 100.0
                         else:
                             self.messageLabel.setText(
-                                "Invalid volume percentage. Please use a value between 0 and 100.")
+                                "Invalid volume percentage. Please use a value between 0 and 100."
+                            )
                             return
                     except ValueError:
                         self.messageLabel.setText(
-                            "Invalid volume percentage. Please use a numeric value or 'max'.")
+                            "Invalid volume percentage. Please use a numeric value or 'max'."
+                        )
                         return
 
                 setAppVolumeByName(processName, volumeLevel)
-                self.messageLabel.setText(
-                    f"{processName} volume set to {percent}%.")
+                self.messageLabel.setText(f"{processName} volume set to {percent}%.")
             else:
                 self.messageLabel.setText(
-                    "Invalid command format. Use: [App name] volume [Level]")
+                    "Invalid command format. Use: [App name] volume [Level]"
+                )
             self.showBubble()
         elif command == "app list":
             self.messageLabel.setText(listAudioSessions())
@@ -1215,7 +1313,7 @@ class VirtualAssistant(QMainWindow):
             self.messageLabel.setText("Toggled play/pause.")
             self.showBubble()
         elif command.lower().startswith("switch "):
-            newPromptType = command[len("switch "):].strip()
+            newPromptType = command[len("switch ") :].strip()
             self.switchPrompt(newPromptType)
             self.messageLabel.setText(f"Switched to prompt: {newPromptType}")
             self.showBubble()
@@ -1243,13 +1341,14 @@ class VirtualAssistant(QMainWindow):
                 self.messageLabel.setText(f"Toggled light '{lightName}'.")
             else:
                 self.messageLabel.setText(
-                    f"Light '{lightName}' not found in configuration.")
+                    f"Light '{lightName}' not found in configuration."
+                )
             self.showBubble()
         elif command.startswith("playlist -l"):
             self.messageLabel.setText(getPlaylists())
             self.showBubble()
         elif command.startswith("playlist "):
-            playlistId = command[len("playlist "):].strip()
+            playlistId = command[len("playlist ") :].strip()
             self.messageLabel.setText(playPlaylist(playlistId))
             self.showBubble()
         elif command in ["skip", "next", "n"]:
@@ -1261,15 +1360,15 @@ class VirtualAssistant(QMainWindow):
             self.messageLabel.setText("Skipped to previous track.")
             self.showBubble()
         elif command.startswith("calc "):
-            expression = command[len("calc "):].strip()
+            expression = command[len("calc ") :].strip()
             result = calculateExpr(expression)
             self.messageLabel.setText(result)
             self.showBubble()
         elif command.startswith("timer "):
             try:
-                timeInput = command[len("timer "):].strip()
-                if ':' in timeInput:
-                    minutes, seconds = map(int, timeInput.split(':'))
+                timeInput = command[len("timer ") :].strip()
+                if ":" in timeInput:
+                    minutes, seconds = map(int, timeInput.split(":"))
                     timeInSeconds = minutes * 60 + seconds
                 else:
                     timeInSeconds = int(timeInput)
@@ -1278,10 +1377,11 @@ class VirtualAssistant(QMainWindow):
                 self.messageLabel.setText(f"Timer set for {timeInput}.")
             except ValueError:
                 self.messageLabel.setText(
-                    "Invalid time format. Please enter a number or time format (mm:ss).")
+                    "Invalid time format. Please enter a number or time format (mm:ss)."
+                )
             self.showBubble()
         elif command.startswith("weather "):
-            cityName = command[len("weather "):].strip()
+            cityName = command[len("weather ") :].strip()
             weatherData = get_weather(cityName)
             # Parse and format the weatherData as needed
             self.messageLabel.setText(self.formatWeatherData(weatherData))
@@ -1295,7 +1395,7 @@ class VirtualAssistant(QMainWindow):
                 self.messageLabel.setText("Speech recognition turned on.")
             self.showBubble()
         elif command.startswith("keyword "):
-            newKeyword = command[len("keyword "):].strip()
+            newKeyword = command[len("keyword ") :].strip()
             self.updateKeyword(newKeyword)
             self.messageLabel.setText(f"Keyword set to: {newKeyword}")
             self.showBubble()
@@ -1313,7 +1413,7 @@ class VirtualAssistant(QMainWindow):
         # Check if the command starts with the prefix
         if command.lower().startswith(prefix.lower()):
             # Remove the prefix and process the GPT command
-            command = command[len(prefix):].strip().lower()
+            command = command[len(prefix) :].strip().lower()
 
             # Add user command to history
             newUserEntry = {"role": "user", "content": command}
@@ -1323,12 +1423,14 @@ class VirtualAssistant(QMainWindow):
             # Use LocalGPTWorker for processing text with your local model
             if self.useLocalGPT:
                 self.localGptWorker = LocalGPTWorker(
-                    command, self.conversationHistory, promptType=self.currentPromptType)
+                    command, self.conversationHistory, promptType=self.currentPromptType
+                )
                 self.localGptWorker.finished.connect(self.handleGptResponse)
                 self.localGptWorker.start()
             else:
                 self.gptWorker = GPTWorker(
-                    command, self.conversationHistory, promptType=self.currentPromptType)
+                    command, self.conversationHistory, promptType=self.currentPromptType
+                )
                 self.gptWorker.finished.connect(self.handleGptResponse)
                 self.gptWorker.start()
 
@@ -1341,15 +1443,14 @@ class VirtualAssistant(QMainWindow):
 
         if isTwitchChat:
             # Save AI response to Twitch chat history
-            self.saveTwitchChatHistory(
-                {"role": "assistant", "content": gptResponse})
+            self.saveTwitchChatHistory({"role": "assistant", "content": gptResponse})
             # print(gptResponse)
 
         # Check if the response is more than just a space
-        if gptResponse.startswith('[') and ']' in gptResponse:
-            endBracketIndex = gptResponse.find(']')
+        if gptResponse.startswith("[") and "]" in gptResponse:
+            endBracketIndex = gptResponse.find("]")
             expression = gptResponse[1:endBracketIndex].strip().lower()
-            message = gptResponse[endBracketIndex + 1:].strip()
+            message = gptResponse[endBracketIndex + 1 :].strip()
 
             if expression in self.expressions:
                 self.changeExpression(expression)
@@ -1394,13 +1495,11 @@ class VirtualAssistant(QMainWindow):
         if self.liveMode:
             self.currentPromptType = "live"
             self.loadConversationHistory()  # Load live mode conversation history
-            self.messageLabel.setText(
-                "Live mode enabled. Voice commands disabled.")
+            self.messageLabel.setText("Live mode enabled. Voice commands disabled.")
         else:
             self.currentPromptType = "default"  # Switch back to your default prompt
             self.loadConversationHistory()  # Load default conversation history
-            self.messageLabel.setText(
-                "Live mode disabled. Voice commands enabled.")
+            self.messageLabel.setText("Live mode disabled. Voice commands enabled.")
         self.showBubble()
         self.saveConfig()  # Save the new state
 
@@ -1420,12 +1519,11 @@ class VirtualAssistant(QMainWindow):
         QApplication.quit()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     app = QApplication(sys.argv)
     blinkSpeed = 25
     blinkTimer = 4000
     bubbleTimerDuration = 6000
-    assistant = VirtualAssistant(
-        blinkSpeed, blinkTimer, bubbleTimerDuration)
+    assistant = VirtualAssistant(blinkSpeed, blinkTimer, bubbleTimerDuration)
     assistant.show()
     sys.exit(app.exec_())
