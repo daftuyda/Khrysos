@@ -13,7 +13,6 @@ import string
 import time
 import socket
 import re
-import subprocess
 import random
 import numpy as np
 import speech_recognition as sr
@@ -26,6 +25,7 @@ from comtypes import CLSCTX_ALL
 from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume, ISimpleAudioVolume
 from dotenv import load_dotenv
 from openai import OpenAI
+from RealtimeTTS import TextToAudioStream, ElevenlabsEngine
 from PyQt5.QtMultimedia import QSound
 from PyQt5.QtWidgets import (
     QApplication,
@@ -360,48 +360,24 @@ class TTSWorker(QThread):
     def __init__(self, text):
         super(TTSWorker, self).__init__()
         self.text = text
-        self.apiKey = elevenApi
 
     def run(self):
         try:
             voiceId = "WkjghqT4Y4l9wvVntXxb"
-            url = f"https://api.elevenlabs.io/v1/text-to-speech/{voiceId}/stream"
-            headers = {
-                "accept": "*/*",
-                "xi-api-key": self.apiKey,
-                "Content-Type": "application/json",
-            }
-            data = {
-                "text": self.text,
-                "voice_settings": {"stability": 0.3, "similarity_boost": 0.30},
-            }
-
-            response = requests.post(url, headers=headers, json=data, stream=True)
-            response.raise_for_status()
-
-            # Configure subprocess to hide the window
-            SW_HIDE = 0
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = SW_HIDE
-
-            # Command to run ffplay
-            ffplayCmd = ["ffplay", "-autoexit", "-"]
-
-            # Start the ffplay subprocess
-            with subprocess.Popen(
-                ffplayCmd,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                startupinfo=startupinfo,
-            ) as ffplayProc:
-                for chunk in response.iter_content(chunk_size=4096):
-                    ffplayProc.stdin.write(chunk)
-                ffplayProc.stdin.close()
-                ffplayProc.wait()
+            engine = ElevenlabsEngine(
+                api_key=os.environ.get("ELEVENLABS_API_KEY"),
+                id=voiceId,
+                model="eleven_turbo_v2",
+                stability=30,
+                clarity=30,
+                style_exxageration=30,
+            )
+            stream = TextToAudioStream(engine)
+            stream.feed(self.text)
+            stream.play_async()
+            self.finished.emit("Playing...")
         except Exception as e:
-            return f"Error: {str(e)}"
+            self.finished.emit(f"Error: {str(e)}")
 
 
 class ContinuousSpeechRecognition(QThread):
