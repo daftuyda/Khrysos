@@ -286,6 +286,8 @@ class LocalGPTWorker(QThread):
 
 class GPTWorker(QThread):
     finished = pyqtSignal(str, bool)
+    streamUpdate = pyqtSignal(str)
+    newResponse = pyqtSignal()
 
     def __init__(
         self, message, conversationHistory, promptType="default", isTwitchChat=False
@@ -310,6 +312,7 @@ class GPTWorker(QThread):
         return prompts
 
     def run(self):
+        self.newResponse.emit()
         try:
             systemPrompt = self.systemPrompts.get(self.promptType, "default")
             messages = [
@@ -325,28 +328,28 @@ class GPTWorker(QThread):
             response = oClient.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=messages,
-                temperature=0.7,
+                temperature=1.5,
                 max_tokens=150,
-                # stream=True,
+                stream=True,
             )
 
-            ## Stream the response ##
-            # for chunk in response:
-            #     if chunk.choices[0].delta.content is not None:
-            #         chunkMessage = chunk.choices[0].delta.content.strip()
-            #     else:
-            #         chunkMessage = ""
+            fullMessage = ""
 
-            #     # Assuming end of sentence or new line as possible end of response
-            #     is_final = chunkMessage.endswith(".") or chunkMessage.endswith("\n")
+            for chunk in response:
+                chunkMessage = chunk.choices[0].delta.content
 
-            #     # Emit the chunk message, whether it's empty or not
-            #     print(chunkMessage)
-            #     self.finished.emit(chunkMessage, self.isTwitchChat)
+                if chunkMessage is not None:
+                    self.streamUpdate.emit(chunkMessage)  # Emit streaming
+                    fullMessage += chunkMessage
+                    # print(chunkMessage)
+                else:
+                    # print(fullMessage)
+                    self.finished.emit(fullMessage, self.isTwitchChat)
 
-            assistantMessage = response.choices[0].message.content.strip()
+            # Non-streaming chat completion
+            # assistantMessage = response.choices[0].message.content.strip()
             # print(assistantMessage)
-            self.finished.emit(assistantMessage, self.isTwitchChat)
+            # self.finished.emit("assistantMessage", self.isTwitchChat)
         except Exception as e:
             self.finished.emit(str(e), self.isTwitchChat)
 
@@ -576,11 +579,6 @@ class VirtualAssistant(QMainWindow):
         self.processTwitchChatTimer.timeout.connect(self.processTwitchChatQueue)
         self.processTwitchChatTimer.start(60000)
 
-        self.wordQueue = []
-        self.subtitleTimer = QTimer(self)
-        self.subtitleTimer.timeout.connect(self.writeNextWord)
-        self.subtitleTimer.setInterval(250)
-
         self.currentPromptType = "default"
         self.currentOutfit = "default"
         self.currentExpression = "normal"
@@ -592,6 +590,7 @@ class VirtualAssistant(QMainWindow):
         self.useLocalGPT = False
         self.handleTwitchChat = False
         self.createSubtitles = False
+        self.inExpression = False
 
         # Initialize and connect the ClickableBox
         self.clickableBox = ClickableBox(self)
@@ -1182,26 +1181,41 @@ class VirtualAssistant(QMainWindow):
         self.processCommand(command)
         self.chatBox.clear()
 
-    def writeSubtitle(self, text):
+    def handleStreamUpdate(self, textChunk):
+        # Check for the start or end of an expression
+        if textChunk == "[":
+            self.inExpression = True
+            return
+        elif textChunk == "]":
+            self.inExpression = False
+            return
+
+        # If we are inside an expression, ignore the text chunk
+        if self.inExpression:
+            return
+
+        currentText = self.messageLabel.text()
+        self.messageLabel.setText(currentText + textChunk)
+        self.showBubble()
+
+        # Write to subtitles if the feature is enabled
         if self.createSubtitles:
-            # Clear the existing content of the file for a new response
+            self.writeToSubtitleFile(textChunk)
+
+    def writeToSubtitleFile(self, textChunk):
+        with open("subtitles.txt", "a") as file:
+            file.write(textChunk)
+
+    def toggleSubtitleGeneration(self):
+        self.createSubtitles = not self.createSubtitles
+        if self.createSubtitles:
+            # Clear existing subtitles when turning on
             open("subtitles.txt", "w").close()
 
-            # Initialize the queue with the words from the new response
-            self.wordQueue = text.split()
-
-            # Start the timer if it's not already running
-            if not self.subtitleTimer.isActive():
-                self.subtitleTimer.start()
-
-    def writeNextWord(self):
-        if self.wordQueue:
-            word = self.wordQueue.pop(0)
-            with open("subtitles.txt", "a") as file:  # Open in append mode
-                file.write(word + " ")
-                file.flush()
-        else:
-            self.subtitleTimer.stop()
+    def onNewGptResponse(self):
+        if self.createSubtitles:
+            # Clear the subtitle file for a new response
+            open("subtitles.txt", "w").close()
 
     def processCommand(self, command):
         command = command.strip()
@@ -1432,9 +1446,12 @@ class VirtualAssistant(QMainWindow):
                     command, self.conversationHistory, promptType=self.currentPromptType
                 )
                 self.gptWorker.finished.connect(self.handleGptResponse)
+                self.gptWorker.streamUpdate.connect(self.handleStreamUpdate)
+                self.gptWorker.newResponse.connect(self.onNewGptResponse)
                 self.gptWorker.start()
 
             self.chatBox.clear()
+            self.messageLabel.clear()
 
     def handleGptResponse(self, gptResponse, isTwitchChat=False):
         newAssistantEntry = {"role": "assistant", "content": gptResponse}
@@ -1443,8 +1460,7 @@ class VirtualAssistant(QMainWindow):
 
         if isTwitchChat:
             # Save AI response to Twitch chat history
-            self.saveTwitchChatHistory({"role": "assistant", "content": gptResponse})
-            # print(gptResponse)
+            self.saveTwitchChatHistory(newAssistantEntry)
 
         # Check if the response is more than just a space
         if gptResponse.startswith("[") and "]" in gptResponse:
@@ -1455,9 +1471,6 @@ class VirtualAssistant(QMainWindow):
             if expression in self.expressions:
                 self.changeExpression(expression)
 
-            # Proceed with handling the response including TTS
-            self.writeSubtitle(message)
-
             if not self.noTtsMode:
                 self.startTTS(message)
 
@@ -1466,8 +1479,6 @@ class VirtualAssistant(QMainWindow):
         else:
             if not self.noTtsMode:
                 self.startTTS(gptResponse)
-
-            self.writeSubtitle(gptResponse)
 
     def showBubble(self):
         self.speechBubbleItem.setVisible(True)
