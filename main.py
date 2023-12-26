@@ -815,6 +815,7 @@ class VirtualAssistant(QMainWindow):
         self.messageLabel.setVisible(True)
 
     def forceCloseApplication(self):
+        self.saveConfig()
         # Terminate the speech recognition thread
         if hasattr(self, "speechRecognitionThread"):
             self.speechRecognitionThread.stopRecognition()
@@ -862,6 +863,8 @@ class VirtualAssistant(QMainWindow):
             "keyword": self.keyword,
             "shortcuts": self.shortcuts,
             "lights": self.lights,
+            "subtitles": self.createSubtitles,
+            "noTtsMode": self.noTtsMode,
         }
         with open(self.configFile, "w") as f:
             json.dump(config, f, indent=4)
@@ -875,6 +878,8 @@ class VirtualAssistant(QMainWindow):
                 self.keyword = config.get("keyword", "hey")
                 self.shortcuts = config.get("shortcuts", {})
                 self.lights = config.get("lights", {})
+                self.createSubtitles = config.get("subtitles", False)
+                self.noTtsMode = config.get("noTtsMode", False)
                 self.updateSprite()
                 return self.currentPromptType
         else:
@@ -884,6 +889,8 @@ class VirtualAssistant(QMainWindow):
             self.keyword = "hey"
             self.shortcuts = {}
             self.lights = {}
+            self.createSubtitles = False
+            self.noTtsMode = False
             return config.get("promptType", "default")
 
     def cycleOutfit(self):
@@ -1311,6 +1318,7 @@ class VirtualAssistant(QMainWindow):
             self.noTtsMode = not self.noTtsMode  # Toggle the TTS mode
             response = "TTS Mode Disabled" if self.noTtsMode else "TTS Mode Enabled"
             self.messageLabel.setText(response)
+            self.saveConfig()
             self.showBubble()
         elif command == "help":
             helpMessage = self.getHelpMessage()
@@ -1498,6 +1506,7 @@ class VirtualAssistant(QMainWindow):
 
     def toggleSubtitleCreation(self):
         self.createSubtitles = not self.createSubtitles
+        self.saveConfig()
         status = "enabled" if self.createSubtitles else "disabled"
         self.messageLabel.setText(f"Subtitle creation is now {status}")
 
