@@ -16,6 +16,7 @@ import re
 import random
 import numpy as np
 import speech_recognition as sr
+from pypresence import Presence
 from queue import Queue
 from ctransformers import AutoModelForCausalLM
 from spotipy.oauth2 import SpotifyOAuth
@@ -180,7 +181,7 @@ def calculateExpr(expression):
         return f"Error: {str(e)}"
 
 
-def get_weather(cityName):
+def getWeather(cityName):
     base_url = "http://api.openweathermap.org/data/2.5/weather?"
     complete_url = f"{base_url}appid={openWeatherKey}&q={cityName}"
     response = requests.get(complete_url)
@@ -390,14 +391,14 @@ class ContinuousSpeechRecognition(QThread):
         self.microphone = sr.Microphone(sample_rate=16000)
         self.stopFlag = False
         self.dataQueue = Queue()
-        self.model = whisper.load_model("base")
+        self.model = whisper.load_model("base.en")
         self.recordTimeout = 0
         self.phraseTimeout = 0.75
         self.lastAudioTime = time.time()
 
         # Adjust for ambient noise
         with self.microphone as source:
-            self.recognizer.adjust_for_ambient_noise(source)
+            self.recognizer.adjust_for_ambient_noise(source, duration=5)
         self.recognizer.energy_threshold = 1000
         self.recognizer.dynamic_energy_threshold = True
 
@@ -437,7 +438,7 @@ class ContinuousSpeechRecognition(QThread):
                         text = result["text"].strip()
 
                         if text:
-                            # print(text)  # Debugging message
+                            print(text)  # Debugging message
                             self.recognizedText.emit(text)
                             self.recognizedCommand.emit(text)
 
@@ -541,6 +542,8 @@ class ClickablePixmapItem(QGraphicsPixmapItem):
 class VirtualAssistant(QMainWindow):
     def __init__(self, blinkSpeed=35, blinkTimer=4000, bubbleTimerDuration=10000):
         super().__init__()
+
+        self.init_discord_rpc()
 
         self.speechRecognitionThread = ContinuousSpeechRecognition()
         self.speechRecognitionThread.recognizedText.connect(self.processRecognizedText)
@@ -1380,7 +1383,7 @@ class VirtualAssistant(QMainWindow):
             self.showBubble()
         elif command.startswith("weather "):
             cityName = command[len("weather ") :].strip()
-            weatherData = get_weather(cityName)
+            weatherData = getWeather(cityName)
             # Parse and format the weatherData as needed
             self.messageLabel.setText(self.formatWeatherData(weatherData))
             self.showBubble()
@@ -1510,7 +1513,29 @@ class VirtualAssistant(QMainWindow):
         status = "enabled" if self.createSubtitles else "disabled"
         self.messageLabel.setText(f"Subtitle creation is now {status}")
 
+    def init_discord_rpc(self):
+        self.client_id = (
+            "1189381174875930644"  # Replace with your Discord app's client ID
+        )
+        self.rpc = Presence(self.client_id)
+        try:
+            self.rpc.connect()
+            self.update_discord_rpc()
+        except Exception as e:
+            print("Discord Rich Presence not started:", e)
+
+    def update_discord_rpc(self, details="Testing", state="Idle"):
+        start_time = int(time.time())
+        self.rpc.update(
+            details=details,
+            # state=state,
+            start=start_time,
+            large_image="yuki",
+            large_text="YuKi",
+        )
+
     def closeEvent(self):
+        self.rpc.close()
         self.forceCloseApplication()
         QApplication.quit()
 
