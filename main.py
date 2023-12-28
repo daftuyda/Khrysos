@@ -68,8 +68,8 @@ twitchToken = redirectUri = os.getenv("twitch_oauth")
 def searchAndPlay(songName):
     results = sp.search(q=songName, limit=1)
     if results["tracks"]["items"]:
-        song_uri = results["tracks"]["items"][0]["uri"]
-        sp.start_playback(uris=[song_uri])
+        songUri = results["tracks"]["items"][0]["uri"]
+        sp.start_playback(uris=[songUri])
         return f"Playing: {results['tracks']['items'][0]['name']}"
     else:
         return "Song not found."
@@ -77,10 +77,10 @@ def searchAndPlay(songName):
 
 def getPlaylists():
     playlists = sp.current_user_playlists(limit=10)
-    playlist_info = ""
+    playlistInfo = ""
     for playlist in playlists["items"]:
-        playlist_info += f"{playlist['name']}\n"
-    return playlist_info
+        playlistInfo += f"{playlist['name']}\n"
+    return playlistInfo
 
 
 def getPlaylistId(sp, playlistName):
@@ -102,8 +102,8 @@ def playPlaylist(playlistName):
 def queueSong(songName):
     results = sp.search(q=songName, limit=1)
     if results["tracks"]["items"]:
-        song_uri = results["tracks"]["items"][0]["uri"]
-        sp.add_to_queue(song_uri)
+        songUri = results["tracks"]["items"][0]["uri"]
+        sp.add_to_queue(songUri)
         return f"Queued: {results['tracks']['items'][0]['name']}"
     else:
         return "Song not found."
@@ -121,13 +121,13 @@ KEYEVENTF_KEYUP = 0x2
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 
 
-def keybd_event(bVk, bScan, dwFlags, dwExtraInfo):
+def keybdEvent(bVk, bScan, dwFlags, dwExtraInfo):
     user32.keybd_event(bVk, bScan, dwFlags, dwExtraInfo)
 
 
 def simulatePlayPause():
-    keybd_event(VK_MEDIA_PLAY_PAUSE, 0, KEYEVENTF_EXTENDEDKEY, 0)
-    keybd_event(VK_MEDIA_PLAY_PAUSE, 0, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0)
+    keybdEvent(VK_MEDIA_PLAY_PAUSE, 0, KEYEVENTF_EXTENDEDKEY, 0)
+    keybdEvent(VK_MEDIA_PLAY_PAUSE, 0, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0)
 
 
 def getAppIdByName(processName):
@@ -543,7 +543,7 @@ class VirtualAssistant(QMainWindow):
     def __init__(self, blinkSpeed=35, blinkTimer=4000, bubbleTimerDuration=10000):
         super().__init__()
 
-        self.init_discord_rpc()
+        self.discordRpc()
 
         self.speechRecognitionThread = ContinuousSpeechRecognition()
         self.speechRecognitionThread.recognizedText.connect(self.processRecognizedText)
@@ -1482,9 +1482,9 @@ class VirtualAssistant(QMainWindow):
         self.downloadThread.quit()
         self.downloadThread.wait()
 
-    def onDownloadError(self, error_message):
+    def onDownloadError(self, error):
         # Update the UI with the error message
-        self.messageLabel.setText(error_message)
+        self.messageLabel.setText(error)
         self.downloadThread.quit()
         self.downloadThread.wait()
 
@@ -1513,23 +1513,23 @@ class VirtualAssistant(QMainWindow):
         status = "enabled" if self.createSubtitles else "disabled"
         self.messageLabel.setText(f"Subtitle creation is now {status}")
 
-    def init_discord_rpc(self):
-        self.client_id = (
+    def discordRpc(self):
+        self.clientId = (
             "1189381174875930644"  # Replace with your Discord app's client ID
         )
-        self.rpc = Presence(self.client_id)
+        self.rpc = Presence(self.clientId)
         try:
             self.rpc.connect()
-            self.update_discord_rpc()
+            self.updateRpc()
         except Exception as e:
             print("Discord Rich Presence not started:", e)
 
-    def update_discord_rpc(self, details="Testing", state="Idle"):
-        start_time = int(time.time())
+    def updateRpc(self, details="Testing", state="Idle"):
+        startTime = int(time.time())
         self.rpc.update(
             details=details,
             # state=state,
-            start=start_time,
+            start=startTime,
             large_image="yuki",
             large_text="YuKi",
         )
