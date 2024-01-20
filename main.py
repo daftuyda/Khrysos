@@ -861,6 +861,7 @@ class VirtualAssistant(QMainWindow):
         QSound.play("sounds/timer.wav")
 
     def saveConfig(self):
+        # Save the current configuration to the config file
         config = {
             "outfit": self.currentOutfit,
             "promptType": self.currentPromptType,
@@ -876,26 +877,35 @@ class VirtualAssistant(QMainWindow):
     def loadConfig(self):
         if os.path.exists(self.configFile):
             with open(self.configFile, "r") as f:
-                config = json.load(f)
-                self.currentOutfit = config.get("outfit", "default")
-                self.currentPromptType = config.get("promptType", "default")
-                self.keyword = config.get("keyword", "hey")
-                self.shortcuts = config.get("shortcuts", {})
-                self.lights = config.get("lights", {})
-                self.createSubtitles = config.get("subtitles", False)
-                self.noTtsMode = config.get("noTtsMode", False)
-                self.updateSprite()
-                return self.currentPromptType
+                try:
+                    config = json.load(f)
+                    # Set up the application based on the loaded configuration
+                    self.currentOutfit = config.get("outfit", "default")
+                    self.currentPromptType = config.get("promptType", "default")
+                    self.keyword = config.get("keyword", "hey")
+                    self.shortcuts = config.get("shortcuts", {})
+                    self.lights = config.get("lights", {})
+                    self.createSubtitles = config.get("subtitles", False)
+                    self.noTtsMode = config.get("noTtsMode", False)
+                    self.updateSprite()
+                except json.JSONDecodeError:
+                    # Handle empty file case by initializing default config
+                    self.getDefaultConfig()
+                    self.saveConfig()  # Save the default config to file
         else:
-            # Default values if config file doesn't exist
-            self.currentOutfit = "default"
-            self.currentPromptType = "default"
-            self.keyword = "hey"
-            self.shortcuts = {}
-            self.lights = {}
-            self.createSubtitles = False
-            self.noTtsMode = False
-            return config.get("promptType", "default")
+            # File doesn't exist, use default config and save it
+            self.getDefaultConfig()
+            self.saveConfig()
+
+    def getDefaultConfig(self):
+        # Set default values directly to instance variables
+        self.currentOutfit = "default"
+        self.currentPromptType = "default"
+        self.keyword = "hey"
+        self.shortcuts = {}
+        self.lights = {}
+        self.createSubtitles = False
+        self.noTtsMode = False
 
     def cycleOutfit(self):
         currentIndex = self.outfits.index(self.currentOutfit)

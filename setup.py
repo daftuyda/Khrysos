@@ -37,14 +37,11 @@ build_exe_options = {
     "excludes": [],
     "include_files": [
         ".env",
-        "config.json",
-        "conversationHistory.db",
         "font/",
         "prompts/",
         "sounds/",
         "sprites/",
         "static/",
-        "subtitles.txt",
     ],
 }
 
@@ -54,8 +51,8 @@ if sys.platform == "win32":
 
 setup(
     name="Khrysos",
-    version="0.1",
+    version="0.2",
     description="An AI Desktop Assistant",
     options={"build_exe": build_exe_options},
-    executables=[Executable("main.py", base=base)],
+    executables=[Executable("main.py", base=base, icon="sprites/icon.ico")],
 )
