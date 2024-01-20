@@ -235,14 +235,14 @@ class LocalGPTWorker(QThread):
             "TheBloke/Mistral-7B-OpenOrca-GGUF",
             model_file="mistral-7b-openorca.Q4_K_M.gguf",
             model_type="mistral",
-            max_new_tokens=130,
-            temperature=0.1,
+            max_new_tokens=128,
+            temperature=1.5,
             top_p=0.9,
             top_k=2,
             repetition_penalty=1.18,
             last_n_tokens=128,
             batch_size=4,
-            context_length=4096,
+            context_length=2048,
             gpu_layers=50,
         )
 
@@ -329,8 +329,9 @@ class GPTWorker(QThread):
             response = oClient.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=messages,
-                temperature=1.5,
-                max_tokens=150,
+                temperature=2,
+                top_p=0.8,
+                max_tokens=128,
                 stream=True,
             )
 
@@ -392,13 +393,13 @@ class ContinuousSpeechRecognition(QThread):
         self.stopFlag = False
         self.dataQueue = Queue()
         self.model = whisper.load_model("base.en")
-        self.recordTimeout = 0
-        self.phraseTimeout = 0.75
+        self.recordTimeout = 10
+        self.phraseTimeout = 0.4
         self.lastAudioTime = time.time()
 
         # Adjust for ambient noise
         with self.microphone as source:
-            self.recognizer.adjust_for_ambient_noise(source, duration=5)
+            self.recognizer.adjust_for_ambient_noise(source, duration=2)
         self.recognizer.energy_threshold = 1000
         self.recognizer.dynamic_energy_threshold = True
 

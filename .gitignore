@@ -8,3 +8,8 @@
 *.pyc
 /WIP/*
 subtitles.txt
+/build/*
+/dist/*
+/env/*
+/output/*
+*.spec
