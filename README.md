@@ -1,7 +1,7 @@
 # Khrysos
 Virtual anime assistant - YuKi
 
-![YuKi](https://raw.githubusercontent.com/AmIVoid/Khrysos/main/outfits.gif)
+![YuKi](https://raw.githubusercontent.com/daftuyda/Khrysos/main/outfits.gif)
 
 Like [Maid-Chan](https://www.youtube.com/watch?v=xHMDiscnKb4) from Sakurasou but worse.
 
@@ -17,5 +17,5 @@ Like [Maid-Chan](https://www.youtube.com/watch?v=xHMDiscnKb4) from Sakurasou but
 - Conversation history
 - Media controls
 
-### [To-Do list](https://github.com/users/AmIVoid/projects/1/views/1)
+### [To-Do list](https://github.com/users/daftuyda/projects/1/views/1)
 
